@@ -1,0 +1,19 @@
+# 本地系统和编辑器文件
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+*.iml
+
+# 本地环境配置；示例文件只能使用占位值
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# 常见私钥和凭据容器；提交前仍需人工检查内容
+*.key
+*.pem
+*.p12
+*.pfx
+

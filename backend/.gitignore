@@ -1,0 +1,13 @@
+# 构建输出和本地缓存
+target/
+build/
+.gradle/
+*.class
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 本地运行日志
+logs/
+*.log

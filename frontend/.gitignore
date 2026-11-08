@@ -1,0 +1,11 @@
+# 依赖和生成产物
+node_modules/
+dist/
+coverage/
+.vite/
+
+# 包管理器本地日志；锁文件需要提交
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
