@@ -1,0 +1,582 @@
+/* 智能巡检机器人控制台样式
+   只依赖系统字体与原生能力，不引用任何外部 CDN、字体或图标。 */
+
+:root {
+  --bg: #eaeef2;
+  --panel: #ffffff;
+  --ink: #16202a;
+  --muted: #61707d;
+  --line: #d7dfe6;
+  --line-strong: #b9c5cf;
+  --cell-free: #f5f8fa;
+  --cell-stroke: #dfe6ec;
+  --block: #3d4d5a;
+  --block-ink: #eaf0f5;
+  --robot: #ec6a24;
+  --robot-ink: #ffffff;
+  --ok: #10744a;
+  --warn: #a54a0c;
+  --err: #b81f2c;
+  --radius: 12px;
+  --axis: 22px;
+  --shadow: 0 1px 2px rgba(20, 32, 42, 0.06), 0 8px 24px rgba(20, 32, 42, 0.06);
+}
+
+@media (max-width: 620px) {
+  :root {
+    --axis: 18px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  padding: clamp(14px, 2.4vw, 28px);
+  background:
+    radial-gradient(1200px 520px at 12% -10%, #ffffff 0%, rgba(255, 255, 255, 0) 60%),
+    var(--bg);
+  color: var(--ink);
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 顶栏 ---------- */
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1040px;
+  margin: 0 auto 18px;
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.brand-mark {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--ink);
+  border-radius: 9px;
+  flex: none;
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  background: var(--robot);
+}
+
+.brand-mark::before {
+  left: 50%;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.brand-mark::after {
+  top: 50%;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.brand-text h1 {
+  margin: 0;
+  font-size: clamp(19px, 2.4vw, 24px);
+  letter-spacing: 0.02em;
+}
+
+.sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+}
+
+.conn {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.conn[data-state="online"] {
+  color: var(--ok);
+  border-color: #b7ddc9;
+  background: #f1faf5;
+}
+
+.conn[data-state="online"] .conn-dot {
+  background: var(--ok);
+}
+
+.conn[data-state="offline"] {
+  color: var(--err);
+  border-color: #f0c3c7;
+  background: #fdf2f3;
+}
+
+.conn[data-state="offline"] .conn-dot {
+  background: var(--err);
+}
+
+/* ---------- 布局 ---------- */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(292px, 340px);
+  gap: clamp(14px, 1.8vw, 22px);
+  align-items: start;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panel {
+  padding: clamp(14px, 1.8vw, 22px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 15.5px;
+  letter-spacing: 0.04em;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---------- 地图 ---------- */
+
+.board-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+/* 地图还没拿到时，board 里没有格子；留出高度让占位提示有地方显示 */
+.board:empty {
+  min-height: 300px;
+}
+
+.board {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  grid-template-columns: var(--axis) repeat(var(--columns, 8), minmax(0, 1fr));
+  grid-auto-rows: auto;
+  padding: 2px;
+}
+
+.axis-corner {
+  width: var(--axis);
+  height: var(--axis);
+}
+
+.axis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.axis-x {
+  height: var(--axis);
+}
+
+.axis-y {
+  font-weight: 600;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--cell-stroke);
+  border-radius: 7px;
+  background: var(--cell-free);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.cell--block {
+  border-color: #33424e;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.09) 0 6px,
+      rgba(255, 255, 255, 0) 6px 12px
+    ),
+    var(--block);
+  color: var(--block-ink);
+  font-size: clamp(12px, 1.6vw, 15px);
+  font-weight: 600;
+}
+
+.cell--robot {
+  flex-direction: column;
+  gap: 1px;
+  border-color: #c4520f;
+  background: var(--robot);
+  color: var(--robot-ink);
+  box-shadow: 0 0 0 3px rgba(236, 106, 36, 0.22);
+}
+
+.cell--robot .robot-arrow {
+  font-size: clamp(15px, 2.2vw, 20px);
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+
+.cell--robot .robot-tag {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  opacity: 0.92;
+}
+
+.cell--robot.is-moved {
+  animation: pop 320ms ease-out;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.86);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell,
+  .cell--robot .robot-arrow {
+    transition: none;
+  }
+  .cell--robot.is-moved {
+    animation: none;
+  }
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: rgba(245, 248, 250, 0.92);
+  color: var(--muted);
+  font-size: 13.5px;
+  text-align: center;
+  white-space: pre-line;
+  padding: 18px;
+}
+
+.placeholder[hidden] {
+  display: none;
+}
+
+/* ---------- 图例 ---------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.legend li {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.swatch-free {
+  border: 1px solid var(--cell-stroke);
+  background: var(--cell-free);
+}
+
+.swatch-block {
+  background: var(--block);
+  color: var(--block-ink);
+}
+
+.swatch-robot {
+  background: var(--robot);
+  color: var(--robot-ink);
+}
+
+/* ---------- 控制面板 ---------- */
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.fact {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f8fafb;
+}
+
+.fact dt {
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+}
+
+.fact dd {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas:
+    ". up ."
+    "left . right"
+    ". down .";
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.key-glyph {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.key-label {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.key-up {
+  grid-area: up;
+}
+.key-down {
+  grid-area: down;
+}
+.key-left {
+  grid-area: left;
+}
+.key-right {
+  grid-area: right;
+}
+
+.key:hover:not(:disabled) {
+  border-color: var(--robot);
+  background: #fff7f2;
+}
+
+.key:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.key:disabled,
+.btn-ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.key:focus-visible,
+.btn-ghost:focus-visible {
+  outline: 3px solid rgba(236, 106, 36, 0.55);
+  outline-offset: 2px;
+}
+
+.btn-ghost {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: #f4f7f9;
+}
+
+.feedback {
+  min-height: 42px;
+  margin: 14px 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--line-strong);
+  border-radius: 0 8px 8px 0;
+  background: #f6f9fa;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.feedback[data-kind="success"] {
+  border-left-color: var(--ok);
+  background: #f1faf5;
+  color: var(--ok);
+}
+
+.feedback[data-kind="warn"] {
+  border-left-color: var(--warn);
+  background: #fdf6ef;
+  color: var(--warn);
+}
+
+.feedback[data-kind="error"] {
+  border-left-color: var(--err);
+  background: #fdf2f3;
+  color: var(--err);
+}
+
+.keys-hint {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 18px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fbfcfd;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ---------- 页脚 ---------- */
+
+.foot {
+  max-width: 1040px;
+  margin: 16px auto 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.foot p {
+  margin: 0;
+}
+
+.noscript {
+  max-width: 1040px;
+  margin: 16px auto 0;
+  padding: 12px 14px;
+  border: 1px solid #f0c3c7;
+  border-radius: 10px;
+  background: #fdf2f3;
+  color: var(--err);
+}
