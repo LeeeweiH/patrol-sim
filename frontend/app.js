@@ -33,6 +33,8 @@
     factPosition: document.getElementById("fact-position"),
     factHeading: document.getElementById("fact-heading"),
     factStatus: document.getElementById("fact-status"),
+    factSteps: document.getElementById("fact-steps"),
+    factVisited: document.getElementById("fact-visited"),
     feedback: document.getElementById("feedback"),
     reload: document.getElementById("reload"),
     conn: document.getElementById("conn"),
@@ -43,6 +45,15 @@
   /** 最后一次「已确认」的服务端状态；失败时用它保持画面不变。 */
   let currentState = null;
   let busy = false;
+
+  /**
+   * 本次会话的行走轨迹。后端不返回历史，所以轨迹只记在页面里：
+   * - 每次成功移动就把新格子加进集合、步数 +1；
+   * - 如果机器人「跳」了不止一格（别的标签页移动过、或手动重新读取时位置已变），
+   *   说明本地轨迹已经不可信，直接清空重来，避免画出错误的路线。
+   */
+  let steps = 0;
+  let trail = new Set();
 
   /* ---------------------------------------------------------------- 请求 */
 
@@ -169,6 +180,29 @@
     return node;
   }
 
+  function cellKey(x, y) {
+    return x + "," + y;
+  }
+
+  /**
+   * 记录一次位置变化：
+   * - 正常移动只差一格，累计步数、把新格子并入轨迹；
+   * - 位置跳变超过一格（别的标签页移动过 / 重新读取时已不同步），本地轨迹就不可信了，清空重来。
+   * 返回 true 表示这次重置过轨迹。
+   */
+  function trackPosition(state, previous) {
+    const jumped =
+      Boolean(previous) &&
+      Math.abs(previous.x - state.robot.x) + Math.abs(previous.y - state.robot.y) > 1;
+
+    if (!previous || jumped || trail.size === 0) {
+      trail = new Set();
+      steps = 0;
+    }
+    trail.add(cellKey(state.robot.x, state.robot.y));
+    return jumped;
+  }
+
   function makeCell(state, x, y) {
     const cell = document.createElement("div");
     cell.className = "cell";
@@ -192,6 +226,9 @@
       cell.append(arrow, tag);
       label =
         "第 " + y + " 行第 " + x + " 列，机器人，朝向" + DIRECTIONS[state.robot.heading];
+    } else if (trail.has(cellKey(x, y))) {
+      cell.classList.add("cell--visited");
+      label = "第 " + y + " 行第 " + x + " 列，可通行，已走过";
     }
 
     cell.setAttribute("aria-label", label);
@@ -227,12 +264,22 @@
 
     if (opts.moved) {
       const robotCell = els.board.querySelector(".cell--robot");
-      if (robotCell) robotCell.classList.add("is-moved");
+      if (robotCell) {
+        // 用「上一格 - 新格」算出位移，交给 CSS 从旧位置滑过来
+        if (opts.from) {
+          robotCell.style.setProperty("--dx", String(opts.from.x - state.robot.x));
+          robotCell.style.setProperty("--dy", String(opts.from.y - state.robot.y));
+        }
+        robotCell.classList.add("is-moved");
+      }
     }
 
     els.placeholder.hidden = true;
     els.mapMeta.textContent =
       width + " × " + height + " 网格 · 障碍 " + state.grid.obstacles.length + " 处";
+
+    els.factSteps.textContent = String(steps);
+    els.factVisited.textContent = String(trail.size);
 
     els.factPosition.textContent = "(" + state.robot.x + ", " + state.robot.y + ")";
     els.factHeading.textContent =
@@ -286,12 +333,18 @@
 
     try {
       const state = validateState(await requestJSON("/api/state"));
+      const previous = currentState ? { x: currentState.robot.x, y: currentState.robot.y } : null;
       currentState = state;
+      const jumped = trackPosition(state, previous);
       renderState(state);
       setConnection("online", "服务在线");
       setFeedback(
-        initial ? "已连接，用方向按钮或键盘开始移动" : "已读取最新状态",
-        initial ? "" : "success"
+        jumped
+          ? "已读取最新状态（位置变化较大，轨迹已重新开始）"
+          : initial
+            ? "已连接，用方向按钮或键盘开始移动"
+            : "已读取最新状态",
+        jumped || !initial ? "success" : ""
       );
     } catch (error) {
       const reason = describeError(error);
@@ -316,6 +369,8 @@
     if (busy || !currentState) return;
     if (!Object.prototype.hasOwnProperty.call(DIRECTIONS, direction)) return;
 
+    const from = { x: currentState.robot.x, y: currentState.robot.y };
+
     busy = true;
     syncControls();
     setFeedback("正在发送「向" + DIRECTIONS[direction] + "移动」指令…");
@@ -329,7 +384,9 @@
         })
       );
       currentState = state;
-      renderState(state, { moved: true });
+      steps += 1;
+      trackPosition(state, from);
+      renderState(state, { moved: true, from: from });
       setConnection("online", "服务在线");
       setFeedback(
         "已向" + DIRECTIONS[direction] + "移动一格，当前位置 (" + state.robot.x + ", " + state.robot.y + ")。",
