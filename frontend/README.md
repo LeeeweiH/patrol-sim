@@ -5,6 +5,7 @@
 ## 功能与环境
 
 - 已实现的页面和操作：8×8 地图查看（障碍物、机器人位置与朝向）、四方向手动控制（按钮点击或键盘方向键）、状态反馈（坐标／朝向／运行状态、连接徽标、中文错误提示、重新读取状态）。
+- 巡检痕迹：走过的格子会留下淡蓝色底与一个圆点，侧栏实时显示本次会话的「步数」与「经过」格数；机器人每次移动有 200ms 的滑动过渡（`prefers-reduced-motion: reduce` 时自动关闭）。
 - 前端使用原生 HTML + CSS + JavaScript（ES2017+，无框架、无打包）开发，地图用 CSS Grid 绘制，每个格子同时用颜色和「障」「机」文字标注，避免只靠颜色区分。
 - 本地运行需要安装现代浏览器（Edge / Chrome / Firefox 的较新版本）即可；前端本身不需要安装任何依赖，也不需要 Node.js。联调需要 Python 3.10+ 运行后端（见 [后端说明](../backend/README.md)）。
 
@@ -28,7 +29,8 @@
 
 - `requestJSON(path, options)`：统一请求封装，8 秒超时（`AbortController`），检查 `response.ok`，解析 JSON，失败时抛出带 `code` 的 `ApiError`。
 - `validateState(data)`：校验后端返回的网格尺寸、障碍物坐标、机器人坐标与朝向，结构不符直接报错，不把半截数据画到页面上。
-- `renderState(state)`：按后端状态整体重建地图与状态面板。
+- `renderState(state)`：按后端状态整体重建地图与状态面板；`state` 之外还接收 `{ moved, from }`，用来把「上一格 → 新格」的位移交给 CSS 做滑动动画。
+- `trackPosition(state, previous)`：记录行走轨迹与步数。正常移动累加一格；若位置跳变超过一格（别的标签页移动过、重新读取时已不同步），清空轨迹重新计数，避免画出错误路线。
 - `loadState()` / `move(direction)`：`GET /api/state` 与 `POST /api/move`，请求期间禁用按钮（`busy`），避免并发。
 - `syncControls()`：统一控制按钮禁用状态与 `aria-busy`。
 

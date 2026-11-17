@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="基于 Web 的智能巡检机器人二维仿真控制台：查看地图、手动控制机器人移动并查看状态反馈。" />
     <title>智能巡检机器人 · 二维仿真控制台</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -42,6 +46,7 @@
 
         <ul class="legend" aria-label="地图图例">
           <li><span class="swatch swatch-free" aria-hidden="true"></span>可通行区域</li>
+          <li><span class="swatch swatch-visited" aria-hidden="true"></span>已走过</li>
           <li><span class="swatch swatch-block" aria-hidden="true">障</span>障碍物（不可通过）</li>
           <li><span class="swatch swatch-robot" aria-hidden="true">机</span>机器人（箭头为朝向）</li>
         </ul>
@@ -67,6 +72,11 @@
             <dd id="fact-status">—</dd>
           </div>
         </dl>
+
+        <p class="trail" id="trail">
+          <span class="trail-item"><span class="trail-label">步数</span><b class="trail-value" id="fact-steps">0</b></span>
+          <span class="trail-item"><span class="trail-label">经过</span><b class="trail-value" id="fact-visited">0</b><span class="trail-unit">格</span></span>
+        </p>
 
         <div class="dpad" role="group" aria-label="移动方向">
           <button class="key key-up" type="button" data-direction="up" aria-keyshortcuts="ArrowUp" disabled>
