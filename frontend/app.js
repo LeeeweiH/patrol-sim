@@ -50,6 +50,11 @@
     controlHint: document.getElementById("control-hint"),
     keysHint: document.getElementById("keys-hint"),
     keys: Array.from(document.querySelectorAll(".key[data-direction]")),
+    dpad: document.getElementById("dpad"),
+    stickWrap: document.getElementById("stick"),
+    stickBase: document.getElementById("stick-base"),
+    stickKnob: document.getElementById("stick-knob"),
+    stickToggle: document.getElementById("stick-toggle"),
     modeBtns: Array.from(document.querySelectorAll(".mode-btn")),
     openScene: document.getElementById("open-scene"),
     start: document.getElementById("start"),
@@ -361,7 +366,7 @@
   function hits(x, y) {
     if (!currentState) return true;
     const grid = currentState.grid;
-    const pad = 0.5 - ROBOT_RADIUS;
+    const pad = 0; // 圆心不越出最外圈格子中心，坐标永远不会出现负数
     if (x < -pad || y < -pad || x > grid.width - 1 + pad || y > grid.height - 1 + pad) return true;
 
     for (let i = 0; i < grid.obstacles.length; i += 1) {
@@ -478,6 +483,9 @@
   }
 
   function heldVector() {
+    // 摇杆优先：拖出死区以后就按摇杆方向走，键盘方向键先不管用
+    if (stick.on && stick.active) return { x: stick.dx, y: stick.dy };
+
     let x = 0;
     let y = 0;
     if (heldKeys.has("left")) x -= 1;
@@ -555,7 +563,11 @@
       moving = followPath(dt);
     }
 
-    if (moving !== actor.walking) setWalking(moving);
+    if (moving !== actor.walking) {
+      setWalking(moving);
+      // 停下来的时候补一次面板刷新，否则「状态」会一直停在「行走中」
+      if (!moving) updateFacts();
+    }
 
     if (!moving && actor.target) {
       // 走到终点了：补一次状态刷新，否则面板会停在「行走中」
@@ -961,6 +973,7 @@
   function beginRun() {
     started = true;
     els.start.hidden = true;
+    applyInputMode();
     try {
       window.localStorage.setItem("patrol.selection", JSON.stringify(selection));
     } catch (error) {
@@ -995,6 +1008,148 @@
     return Boolean(target.isContentEditable);
   }
 
+  /* ---------------------------------------------------------------- 摇杆 */
+
+  const stick = { on: false, active: false, dx: 0, dy: 0 };
+  let stickPointer = null;
+  let stickLastStep = 0;
+
+  /** 摇杆开着就藏起方向键，换成摇杆面板；提示文案也跟着换。 */
+  function applyInputMode() {
+    if (els.dpad) els.dpad.hidden = stick.on;
+    if (els.stickWrap) els.stickWrap.hidden = !(stick.on && started);
+    if (els.keysHint) {
+      els.keysHint.innerHTML = stick.on
+        ? "摇杆已开启，键盘移动暂停用；关掉摇杆就能继续用 WASD"
+        : '也可以按住键盘 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动';
+    }
+  }
+
+  function setStick(on) {
+    stick.on = Boolean(on);
+    if (els.stickToggle) {
+      els.stickToggle.setAttribute("aria-checked", stick.on ? "true" : "false");
+    }
+    releaseStick();
+    applyInputMode();
+    try {
+      window.localStorage.setItem("patrol.stick", stick.on ? "1" : "0");
+    } catch (error) {
+      /* 隐私模式下写不了，忽略 */
+    }
+  }
+
+  function restoreStick() {
+    let saved = "0";
+    try {
+      saved = window.localStorage.getItem("patrol.stick") || "0";
+    } catch (error) {
+      saved = "0";
+    }
+    setStick(saved === "1");
+  }
+
+  function resetStickKnob() {
+    if (els.stickKnob) els.stickKnob.style.transform = "";
+    if (els.stickBase) els.stickBase.classList.remove("is-active");
+    stick.active = false;
+    stick.dx = 0;
+    stick.dy = 0;
+  }
+
+  function releaseStick() {
+    if (stickPointer !== null && els.stickBase) {
+      try {
+        els.stickBase.releasePointerCapture(stickPointer);
+      } catch (error) {
+        /* 已经释放过了 */
+      }
+    }
+    stickPointer = null;
+    resetStickKnob();
+  }
+
+  /** 格点模式下摇杆当成「推一下走一格」，用冷却时间挡掉连发。 */
+  function stickStep(dx, dy) {
+    const now = Date.now();
+    if (now - stickLastStep < 420) return;
+    stickLastStep = now;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (Math.abs(dx) > 0.05) move(dx > 0 ? "right" : "left");
+    } else {
+      move(dy > 0 ? "down" : "up");
+    }
+  }
+
+  function trackStick(event) {
+    if (!els.stickBase || stickPointer === null) return;
+    const rect = els.stickBase.getBoundingClientRect();
+    const maxRadius = rect.width * 0.33;
+    let dx = event.clientX - (rect.left + rect.width / 2);
+    let dy = event.clientY - (rect.top + rect.height / 2);
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxRadius) {
+      dx = (dx / dist) * maxRadius;
+      dy = (dy / dist) * maxRadius;
+    }
+    if (els.stickKnob) {
+      els.stickKnob.style.transform = "translate(" + dx.toFixed(1) + "px, " + dy.toFixed(1) + "px)";
+    }
+
+    const magnitude = Math.min(dist / maxRadius, 1);
+    if (magnitude < 0.22) {
+      stick.active = false;
+      return;
+    }
+
+    const len = Math.hypot(dx, dy) || 1;
+    // 拖得越远走得越快：最小留 35% 速度，推到边缘就是全速
+    const speed = 0.35 + 0.65 * Math.min((magnitude - 0.22) / 0.78, 1);
+    stick.active = true;
+    stick.dx = (dx / len) * speed;
+    stick.dy = (dy / len) * speed;
+
+    if (mode === "grid") {
+      stickStep(stick.dx, stick.dy);
+      return;
+    }
+    startLoop();
+  }
+
+  function bindStick() {
+    if (!els.stickBase) return;
+
+    els.stickBase.addEventListener("pointerdown", (event) => {
+      if (!started) return;
+      event.preventDefault();
+      stickPointer = event.pointerId;
+      els.stickBase.classList.add("is-active");
+      try {
+        els.stickBase.setPointerCapture(stickPointer);
+      } catch (error) {
+        /* 抓不住也还能用 pointermove */
+      }
+      trackStick(event);
+    });
+
+    els.stickBase.addEventListener("pointermove", (event) => {
+      if (stickPointer === null || event.pointerId !== stickPointer) return;
+      event.preventDefault();
+      trackStick(event);
+    });
+
+    ["pointerup", "pointercancel", "pointerleave"].forEach((name) => {
+      els.stickBase.addEventListener(name, (event) => {
+        if (stickPointer === null) return;
+        if (typeof event.pointerId === "number" && event.pointerId !== stickPointer) return;
+        releaseStick();
+      });
+    });
+
+    if (els.stickToggle) {
+      els.stickToggle.addEventListener("click", () => setStick(!stick.on));
+    }
+  }
   const KEY_TO_DIRECTION = {
     ArrowUp: "up",
     ArrowDown: "down",
@@ -1011,6 +1166,7 @@
   };
 
   function bindEvents() {
+    bindStick();
     // 方向键：自由模式按住持续走，格点模式点一下走一格
     els.keys.forEach((button) => {
       const direction = button.dataset.direction;
@@ -1057,7 +1213,16 @@
       walkTo(cellX, cellY, offsetX, offsetY);
     });
 
-    els.reload.addEventListener("click", () => loadState({ initial: !currentState }));
+    els.reload.addEventListener("click", () => {
+      // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
+      steps = 0;
+      trail = new Set();
+      actor.cell = "";
+      paintTrail();
+      els.factSteps.textContent = "0";
+      els.factVisited.textContent = "0";
+      loadState({ initial: !currentState });
+    });
     els.openScene.addEventListener("click", openSetup);
     els.startGo.addEventListener("click", beginRun);
 
@@ -1072,6 +1237,7 @@
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
       if (!started || isTypingTarget(event.target)) return;
       if (!els.start.hidden) return;
+      if (stick.on) return;
 
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
@@ -1110,6 +1276,7 @@
     restoreSelection();
     markPicks();
     bindEvents();
+    restoreStick();
     syncControls();
     setMode("free");
     loadState({ initial: true });
