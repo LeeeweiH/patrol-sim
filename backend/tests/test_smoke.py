@@ -71,3 +71,10 @@ def test_wrong_method_on_api_path(client: TestClient) -> None:
     # 根路径挂载了前端静态目录，未匹配到路由的请求会交给静态处理器：
     # 方法不对时返回 404（静态里找不到这个文件）或 405（路由层拒绝）都算正常。
     assert client.get("/api/move").status_code in (404, 405)
+
+
+def test_move_non_string_direction(client: TestClient) -> None:
+    """direction 不是字符串时返回 400，而不是 500。"""
+    resp = client.post("/api/move", json={"direction": ["up"]})
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "invalid_direction"
