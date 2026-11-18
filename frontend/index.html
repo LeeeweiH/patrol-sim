@@ -59,7 +59,19 @@
         </ul>
       </section>
 
-      <section class="panel side-panel" aria-labelledby="control-title">
+      <button
+        class="side-toggle"
+        id="side-toggle"
+        type="button"
+        aria-controls="side-panel"
+        aria-expanded="true"
+        title="收起右侧面板"
+      >
+        <span class="side-toggle-glyph" id="side-toggle-glyph" aria-hidden="true">›</span>
+        <span class="side-toggle-text">收起</span>
+      </button>
+
+      <section class="panel side-panel" id="side-panel" aria-labelledby="control-title">
         <div class="panel-head">
           <h2 id="control-title">手动控制</h2>
           <p class="hint" id="control-hint">点击地图走过去</p>

@@ -36,6 +36,10 @@
   const els = {
     board: document.getElementById("board"),
     stage: document.getElementById("stage"),
+    layout: document.querySelector(".layout"),
+    sideToggle: document.getElementById("side-toggle"),
+    sideToggleGlyph: document.getElementById("side-toggle-glyph"),
+    sideToggleText: document.querySelector(".side-toggle-text"),
     placeholder: document.getElementById("placeholder"),
     mapMeta: document.getElementById("map-meta"),
     factPosition: document.getElementById("fact-position"),
@@ -642,6 +646,9 @@
     }
   }
 
+  /** 地图上按下时的落点，松开就清空。 */
+  let pressPoint = null;
+
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
   function walkTo(cellX, cellY, offsetX, offsetY) {
     if (!currentState) return;
@@ -1165,8 +1172,39 @@
     D: "right",
   };
 
+  /** 右侧面板收起 / 展开；状态记在 localStorage，刷新后保持。 */
+  function setSide(collapsed) {
+    els.layout.classList.toggle("is-collapsed", collapsed);
+    els.sideToggle.setAttribute("aria-expanded", String(!collapsed));
+    els.sideToggleGlyph.textContent = collapsed ? "‹" : "›";
+    els.sideToggleText.textContent = collapsed ? "展开" : "收起";
+    els.sideToggle.title = collapsed ? "展开右侧面板" : "收起右侧面板";
+    els.sideToggle.setAttribute("aria-label", els.sideToggle.title);
+    try {
+      localStorage.setItem("patrol.side", collapsed ? "collapsed" : "open");
+    } catch (error) {
+      /* 隐私模式下写不进去就算了 */
+    }
+    // 面板宽度变了，地图的格子尺寸要重新算
+    requestAnimationFrame(fitStage);
+    window.setTimeout(fitStage, 300);
+  }
+
+  function restoreSide() {
+    let saved = "";
+    try {
+      saved = localStorage.getItem("patrol.side") || "";
+    } catch (error) {
+      saved = "";
+    }
+    setSide(saved === "collapsed");
+  }
+
   function bindEvents() {
     bindStick();
+    els.sideToggle.addEventListener("click", () => {
+      setSide(!els.layout.classList.contains("is-collapsed"));
+    });
     // 方向键：自由模式按住持续走，格点模式点一下走一格
     els.keys.forEach((button) => {
       const direction = button.dataset.direction;
@@ -1197,22 +1235,57 @@
     });
 
     // 点地图：自由模式下走过去
-    els.board.addEventListener("click", (event) => {
-      if (!started || mode !== "free" || !currentState) return;
-      const cell = event.target.closest ? event.target.closest(".cell") : null;
-      if (!cell || !cell.dataset.x) return;
+    // 地图上按住就能走：按下立刻出发，按住拖动时换成指针下面的那个格子
+    const cellUnder = (clientX, clientY) => {
+      const el = document.elementFromPoint(clientX, clientY);
+      return el && el.closest ? el.closest(".cell") : null;
+    };
 
-      const cellX = Number(cell.dataset.x);
-      const cellY = Number(cell.dataset.y);
-      const width = cell.clientWidth || 1;
-      const height = cell.clientHeight || 1;
-      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-      // offsetX/Y 是元素自身坐标，格子被 3D 压扁了也照样可用；缩到中间 76% 免得贴边
-      const offsetX = clamp((event.offsetX || width / 2) / width, 0.12, 0.88);
-      const offsetY = clamp((event.offsetY || height / 2) / height, 0.12, 0.88);
-      walkTo(cellX, cellY, offsetX, offsetY);
+    const pointIn = (cell, clientX, clientY) => {
+      if (!cell || !cell.dataset.x) return null;
+      const rect = cell.getBoundingClientRect();
+      const clamp = (value) => Math.max(0.12, Math.min(0.88, value));
+      return {
+        cell,
+        cellX: Number(cell.dataset.x),
+        cellY: Number(cell.dataset.y),
+        offsetX: clamp(rect.width ? (clientX - rect.left) / rect.width : 0.5),
+        offsetY: clamp(rect.height ? (clientY - rect.top) / rect.height : 0.5),
+      };
+    };
+
+    els.board.addEventListener("pointerdown", (event) => {
+      if (!started || mode !== "free" || !currentState) return;
+      if (event.button > 0) return;
+      const point = pointIn(event.target.closest ? event.target.closest(".cell") : null, event.clientX, event.clientY);
+      if (!point) return;
+      event.preventDefault();
+      pressPoint = point;
+      try {
+        els.board.setPointerCapture(event.pointerId);
+      } catch (error) {
+        /* 没有 pointer capture 也能用，只是拖出地图后会断 */
+      }
+      walkTo(point.cellX, point.cellY, point.offsetX, point.offsetY);
     });
 
+    els.board.addEventListener("pointermove", (event) => {
+      if (!pressPoint) return;
+      // 用元素命中判断：被 capture 到 board 上的事件 target 不再是格子
+      const cell = cellUnder(event.clientX, event.clientY);
+      if (!cell || !cell.dataset.x) return;
+      if (cell === pressPoint.cell) return;
+      const point = pointIn(cell, event.clientX, event.clientY);
+      if (!point) return;
+      pressPoint = point;
+      walkTo(point.cellX, point.cellY, point.offsetX, point.offsetY);
+    });
+
+    const endPress = () => {
+      pressPoint = null;
+    };
+    els.board.addEventListener("pointerup", endPress);
+    els.board.addEventListener("pointercancel", endPress);
     els.reload.addEventListener("click", () => {
       // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
       steps = 0;
@@ -1277,6 +1350,7 @@
     markPicks();
     bindEvents();
     restoreStick();
+    restoreSide();
     syncControls();
     setMode("free");
     loadState({ initial: true });
