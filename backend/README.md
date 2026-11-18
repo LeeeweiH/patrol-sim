@@ -40,4 +40,4 @@
 ## 构建与检查
 
 - 无构建命令/产物，由纯Python源码运行
-- 测试或检查命令为 `ruff check .（预期 All checks passed!）、python -m compileall -q app（预期无输出）、pytest -q（预期 14 passed）`。
+- 测试或检查命令为 `ruff check .（预期 All checks passed!）、python -m compileall -q app（预期无输出）、pytest -q（预期 15 passed）`。
