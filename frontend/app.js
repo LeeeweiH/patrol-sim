@@ -90,7 +90,7 @@
    * 立牌素材放在 assets/scene.svg，页面启动时取一次、内联进 DOM，
    * 之后每处克隆一份——换模型（以后换角色、加时装）只改那个 svg。
    */
-  const SCENE_URL = "assets/scene.svg";
+  const SCENE_URL = "assets/scene.svg?v=4";
 
   const HEADING_DEG = { right: 0, down: 90, left: 180, up: -90 };
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
@@ -151,7 +151,8 @@
     const cell = els.board.querySelector(".cell");
     if (!cell) return null;
     const width = els.board.querySelectorAll(".axis-x").length;
-    const cellPx = cell.offsetWidth;
+    // 夹一下，异常尺寸时别把舞台撑坏
+    const cellPx = Math.max(24, Math.min(170, cell.offsetWidth));
     if (!cellPx) return null;
     const gap = parseFloat(getComputedStyle(els.board).gap) || 0;
     return {
@@ -168,10 +169,12 @@
    * 再把舞台高度收成「倾斜后真正看得见的高度 + 立牌高度」，
    * 否则旋转前后的布局高度对不上，地图下面会空出一大块。
    */
-  function fitStage() {
+  function fitStage(options) {
+    const instant = Boolean(options && options.instant);
     const cell = els.board.querySelector(".cell");
     if (!cell) return;
-    const cellPx = cell.offsetWidth;
+    // 夹一下，异常尺寸时别把舞台撑坏
+    const cellPx = Math.max(24, Math.min(170, cell.offsetWidth));
     const boardH = els.board.offsetHeight;
     if (!cellPx || !boardH) return;
 
@@ -181,6 +184,15 @@
 
     els.board.style.setProperty("--cell-px", cellPx + "px");
     els.stage.style.setProperty("--stage-h", Math.round(boardH * cos + cellPx * 1.15 + 24) + "px");
+
+    // 重排时先关掉 220ms 过渡，否则窗口一变角色会从旧位置「滑」过去，看着像在跳
+    if (instant && actor.node) {
+      actor.node.style.transition = "none";
+      applyActorTransform();
+      void actor.node.offsetWidth;
+      actor.node.style.transition = "";
+      return;
+    }
 
     applyActorTransform();
   }
@@ -1154,7 +1166,7 @@
     });
 
     if (els.stickToggle) {
-      els.stickToggle.addEventListener("click", () => setStick(!stick.on));
+      els.stickToggle?.addEventListener("click", () => setStick(!stick.on));
     }
   }
   const KEY_TO_DIRECTION = {
@@ -1201,6 +1213,20 @@
   }
 
   function bindEvents() {
+    // 窗口尺寸变化最先绑，后面任何一处抛错都不会影响地图重排
+    let resizeFrame = 0;
+    const refit = () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => fitStage({ instant: true }));
+    };
+    window.addEventListener("resize", refit);
+
+    // resize 事件偶尔拿到的还是旧布局（尤其是全屏切换），再挂一层观察器兜底
+    if (typeof ResizeObserver === "function" && els.stage) {
+      const observer = new ResizeObserver(refit);
+      observer.observe(els.stage);
+      observer.observe(els.board);
+    }
     bindStick();
     els.sideToggle.addEventListener("click", () => {
       setSide(!els.layout.classList.contains("is-collapsed"));
@@ -1335,12 +1361,6 @@
     window.addEventListener("blur", () => {
       heldKeys.clear();
       els.keys.forEach((button) => button.classList.remove("is-held"));
-    });
-
-    let resizeFrame = 0;
-    window.addEventListener("resize", () => {
-      window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(fitStage);
     });
   }
 

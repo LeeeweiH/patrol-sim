@@ -309,7 +309,10 @@ body {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: var(--stage-h, 440px);
+  /* 高度跟宽度成比例：投影后的地面约为宽度的 0.56，再给立牌留一点头顶空间。
+     用 aspect-ratio 而不是 JS 量高度，窗口怎么变都不会错位。 */
+  height: auto;
+  aspect-ratio: 1 / 0.7;
   perspective: 6000px;
   perspective-origin: 50% 16%;
 }
@@ -1491,4 +1494,35 @@ kbd {
 
 .side-toggle-text {
   display: none;
+}
+/* 兜底：每个面板自成层叠上下文，地图再大也不会盖住顶栏和右栏 */
+.panel {
+  position: relative;
+  z-index: 0;
+}
+
+.map-panel {
+  overflow: hidden;
+}
+/* 舞台高度只由宽度决定；地图绝对定位居中，不再把舞台撑高。
+   这样窗口（含 F11 全屏）怎么变，地图都按同一比例缩放。 */
+.stage {
+  display: block;
+  height: auto;
+  aspect-ratio: 1 / 0.72;
+  perspective-origin: 50% 22%;
+}
+
+.stage > .board {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 92%;
+  transform: translate(-50%, -50%) rotateX(var(--tilt));
+  transform-origin: 50% 50%;
+}
+
+.layout.is-collapsed .map-panel .stage > .board {
+  width: 100%;
+  max-width: min(100%, 78vw);
 }
