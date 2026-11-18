@@ -21,7 +21,7 @@
 
    - 如果激活时报“禁止运行脚本”，先执行 `Set-ExecutionPolicy -Scope Process Bypass`，再重新激活；也可以改用 `cmd` 里的 `.\.venv\Scripts\activate.bat`。
    - 没有激活也能用，只是要写全路径：`.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`。
-3. **准备配置和初始数据。** 不需要配置文件；环境变量只有 `PORT`，示例值 `8080`（不设置时默认 8080）。没有需要初始化的数据，地图尺寸与障碍物坐标直接定义在 `backend/app/main.py` 的 `GRID_WIDTH`、`GRID_HEIGHT`、`OBSTACLES` 中，因此没有单独的加载步骤。`PORT` 必须是 1–65535 的整数，非整数或超出范围时启动直接报错退出并输出可读原因。
+3. **准备配置和初始数据。** 不需要配置文件；环境变量只有 `PORT`，示例值 `8080`（不设置时默认 8080）。没有需要初始化的数据，地图尺寸与障碍物坐标直接定义在 `backend/app/sim.py` 的 `GRID_WIDTH`、`GRID_HEIGHT`、`OBSTACLES` 中，因此没有单独的加载步骤。`PORT` 必须是 1–65535 的整数，非整数或超出范围时启动直接报错退出并输出可读原因。
 
 4. **启动后端。** 执行 `python -m app.main`，服务访问地址为 `http://localhost:8080`。启动成功时可以看到 `Uvicorn running on http://0.0.0.0:8080`。
 5. **验证接口。** 按下方示例发出请求，核对状态码和响应内容。联调页面时，按[前端说明](../frontend/README.md)启动前端。
@@ -40,4 +40,4 @@
 ## 构建与检查
 
 - 无构建命令/产物，由纯Python源码运行
-- 测试或检查命令为 `ruff check .（预期 All checks passed!）、python -m compileall -q app（预期无输出）、pytest -q（预期 8 passed）`。
+- 测试或检查命令为 `ruff check .（预期 All checks passed!）、python -m compileall -q app（预期无输出）、pytest -q（预期 14 passed）`。
