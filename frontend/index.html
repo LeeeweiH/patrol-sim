@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="基于 Web 的智能巡检机器人二维仿真控制台：查看地图、手动控制机器人移动并查看状态反馈。" />
+    <meta name="description" content="基于 Web 的智能巡检机器人二维仿真控制台：斜俯视地图、自由移动与格点移动两种操控方式、状态反馈。" />
     <title>智能巡检机器人 · 二维仿真控制台</title>
     <link
       rel="icon"
@@ -13,6 +13,11 @@
   </head>
   <body>
     <header class="topbar">
+      <button class="scene-btn" id="open-scene" type="button" title="重新选择地图与机器人">
+        <span class="scene-btn-glyph" aria-hidden="true">◆</span>
+        <span>场景</span>
+      </button>
+
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <div class="brand-text">
@@ -34,28 +39,30 @@
         </div>
 
         <div class="board-wrap">
-          <div
-            class="board"
-            id="board"
-            role="group"
-            aria-label="二维巡检地图"
-            aria-busy="false"
-          ></div>
+          <div class="stage" id="stage">
+            <div
+              class="board"
+              id="board"
+              role="group"
+              aria-label="二维巡检地图"
+              aria-busy="false"
+            ></div>
+          </div>
           <p class="placeholder" id="placeholder">正在加载地图…</p>
         </div>
 
         <ul class="legend" aria-label="地图图例">
           <li><span class="swatch swatch-free" aria-hidden="true"></span>可通行区域</li>
           <li><span class="swatch swatch-visited" aria-hidden="true"></span>已走过</li>
-          <li><span class="swatch swatch-block" aria-hidden="true">障</span>障碍物（不可通过）</li>
-          <li><span class="swatch swatch-robot" aria-hidden="true">机</span>机器人（箭头为朝向）</li>
+          <li><span class="swatch swatch-block" aria-hidden="true">禁</span>禁止通行牌（不可通过）</li>
+          <li><span class="swatch swatch-robot" aria-hidden="true">机</span>巡检机器人（脚下的光锥是朝向）</li>
         </ul>
       </section>
 
       <section class="panel side-panel" aria-labelledby="control-title">
         <div class="panel-head">
           <h2 id="control-title">手动控制</h2>
-          <p class="hint">每次点击移动一格</p>
+          <p class="hint" id="control-hint">点击地图走过去</p>
         </div>
 
         <dl class="facts">
@@ -78,17 +85,22 @@
           <span class="trail-item"><span class="trail-label">经过</span><b class="trail-value" id="fact-visited">0</b><span class="trail-unit">格</span></span>
         </p>
 
+        <div class="mode" role="group" aria-label="控制模式">
+          <button class="mode-btn is-on" type="button" data-mode="free" aria-pressed="true">自由移动</button>
+          <button class="mode-btn" type="button" data-mode="grid" aria-pressed="false">格点移动</button>
+        </div>
+
         <div class="dpad" role="group" aria-label="移动方向">
-          <button class="key key-up" type="button" data-direction="up" aria-keyshortcuts="ArrowUp" disabled>
+          <button class="key key-up" type="button" data-direction="up" aria-keyshortcuts="ArrowUp W" disabled>
             <span class="key-glyph" aria-hidden="true">↑</span><span class="key-label">上</span>
           </button>
-          <button class="key key-left" type="button" data-direction="left" aria-keyshortcuts="ArrowLeft" disabled>
+          <button class="key key-left" type="button" data-direction="left" aria-keyshortcuts="ArrowLeft A" disabled>
             <span class="key-glyph" aria-hidden="true">←</span><span class="key-label">左</span>
           </button>
-          <button class="key key-down" type="button" data-direction="down" aria-keyshortcuts="ArrowDown" disabled>
+          <button class="key key-down" type="button" data-direction="down" aria-keyshortcuts="ArrowDown S" disabled>
             <span class="key-glyph" aria-hidden="true">↓</span><span class="key-label">下</span>
           </button>
-          <button class="key key-right" type="button" data-direction="right" aria-keyshortcuts="ArrowRight" disabled>
+          <button class="key key-right" type="button" data-direction="right" aria-keyshortcuts="ArrowRight D" disabled>
             <span class="key-glyph" aria-hidden="true">→</span><span class="key-label">右</span>
           </button>
         </div>
@@ -97,15 +109,66 @@
 
         <p class="feedback" id="feedback" role="status" aria-live="polite">正在连接服务…</p>
 
-        <p class="keys-hint">
-          也可以直接用键盘 <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移动
+        <p class="keys-hint" id="keys-hint">
+          也可以按住键盘 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动
         </p>
       </section>
     </main>
 
     <footer class="foot">
-      <p>地图与状态全部来自后端接口，页面不做本地预测；请求失败时不会改变画面中的机器人位置。</p>
+      <p id="foot-note">
+        地图与障碍来自后端接口；自由移动是页面内的运动模拟，切回格点移动会以服务端状态为准。
+      </p>
     </footer>
+
+    <!-- 开场：选地图 + 选机器人。选完收起来，左上角「场景」按钮可以再打开。 -->
+    <div class="start" id="start" role="dialog" aria-modal="true" aria-labelledby="start-title">
+      <div class="start-card">
+        <p class="kicker">SETUP / 出勤准备</p>
+        <h2 id="start-title">先选地图，再选机器人</h2>
+        <p class="start-sub">
+          现在各只有一个选项，先把手感定下来；后面加地图和机体时，这里会变成一排卡片。
+        </p>
+
+        <div class="pick-group">
+          <h3 class="pick-title">① 巡检地图</h3>
+          <div class="pick-row" role="radiogroup" aria-label="地图">
+            <button class="pick is-on" type="button" data-pick="map" data-value="grid8" role="radio" aria-checked="true">
+              <span class="pick-art pick-art--map" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </span>
+              <span class="pick-body">
+                <span class="pick-name">标准巡检区</span>
+                <span class="pick-meta">8 × 8 · 3 处禁止通行</span>
+              </span>
+              <span class="pick-tick" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pick-group">
+          <h3 class="pick-title">② 巡检机器人</h3>
+          <div class="pick-row" role="radiogroup" aria-label="机器人">
+            <button class="pick is-on" type="button" data-pick="robot" data-value="go2" role="radio" aria-checked="true">
+              <span class="pick-art pick-art--robot" id="robot-preview" aria-hidden="true"></span>
+              <span class="pick-body">
+                <span class="pick-name">机器狗 · Go2-lite</span>
+                <span class="pick-meta">四足 · 站立巡检</span>
+              </span>
+              <span class="pick-tick" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="start-foot">
+          <button class="btn-primary" id="start-go" type="button">开始巡检</button>
+          <p class="start-note">提示：自由移动模式下，点地图任意位置它都会走过去，遇到禁止通行牌会绕开。</p>
+        </div>
+      </div>
+    </div>
 
     <noscript>
       <p class="noscript">本页面需要 JavaScript 才能显示地图和发送移动指令，请在浏览器中启用后刷新。</p>
