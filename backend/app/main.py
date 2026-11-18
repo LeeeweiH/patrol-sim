@@ -16,24 +16,21 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.sim import Blocked, InvalidDirection, OutOfBounds, Simulation
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 LOGGER = logging.getLogger("patrol")
 
-# ---- 占位仿真数据（A 会替换成真正的仿真模块）--------------------------------
-GRID_WIDTH = 8
-GRID_HEIGHT = 8
-OBSTACLES = {(2, 2), (3, 2), (5, 5)}
-DIRECTIONS = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
-
-ROBOT = {"x": 0, "y": 0, "heading": "up", "status": "idle"}
+# ---- 仿真模块 ---------------------------------------------------------------
+SIM = Simulation()
 
 
 def reset_state() -> None:
     """把机器人放回起点，测试用。"""
-    ROBOT.update({"x": 0, "y": 0, "heading": "up", "status": "idle"})
+    SIM.reset()
 
 
 # ---- 运行时配置 --------------------------------------------------------------
@@ -55,14 +52,7 @@ def error(status: int, code: str, message: str) -> JSONResponse:
 
 
 def build_state() -> dict:
-    return {
-        "grid": {
-            "width": GRID_WIDTH,
-            "height": GRID_HEIGHT,
-            "obstacles": [list(item) for item in sorted(OBSTACLES)],
-        },
-        "robot": dict(ROBOT),
-    }
+    return SIM.state()
 
 
 # ---- 应用装配 ----------------------------------------------------------------
@@ -85,19 +75,23 @@ def create_app() -> FastAPI:
             return error(400, "invalid_json", "请求体必须是合法的 JSON")
 
         direction = payload.get("direction") if isinstance(payload, dict) else None
-        if direction not in DIRECTIONS:
-            return error(400, "invalid_direction", "direction 只能是 up、down、left、right")
 
-        dx, dy = DIRECTIONS[direction]
-        nx, ny = ROBOT["x"] + dx, ROBOT["y"] + dy
-        if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
+        try:
+            state = SIM.move(direction)
+        except InvalidDirection:
+            return error(400, "invalid_direction", "direction 只能是 up、down、left、right")
+        except OutOfBounds:
             return error(409, "out_of_bounds", "已到地图边界，无法继续移动")
-        if (nx, ny) in OBSTACLES:
+        except Blocked:
             return error(409, "blocked", "目标格是障碍物，无法通过")
 
-        ROBOT.update({"x": nx, "y": ny, "heading": direction, "status": "moving"})
-        LOGGER.info("move %s -> (%s, %s)", direction, nx, ny)
-        return build_state()
+        LOGGER.info(
+            "move %s -> (%s, %s)",
+            direction,
+            state["robot"]["x"],
+            state["robot"]["y"],
+        )
+        return state
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
