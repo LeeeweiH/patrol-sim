@@ -22,12 +22,26 @@
   --radius: 12px;
   --axis: 22px;
   --board-gap: 4px;
+  /* 相机：地面往后倒 56°，约等于从 34° 俯角看下去，接近 PvZ 那种斜俯视 */
+  --tilt: 56deg;
+  /* 单格边长，由 JS 量出来后写进来，立牌尺寸都按它换算 */
+  --cell-px: 64px;
   --shadow: 0 1px 2px rgba(20, 32, 42, 0.06), 0 8px 24px rgba(20, 32, 42, 0.06);
 }
 
 @media (max-width: 620px) {
   :root {
     --axis: 18px;
+    --board-gap: 3px;
+  }
+
+  /* 窄屏格子小，立牌跟着收一点，免得糊成一团 */
+  .billboard--dog .sprite {
+    width: calc(var(--cell-px, 48px) * 1.3);
+  }
+
+  .billboard--crate .sprite {
+    width: calc(var(--cell-px, 48px) * 0.86);
   }
 }
 
@@ -59,9 +73,9 @@ body {
 .topbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 20px;
+  gap: 12px 14px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   max-width: 1040px;
   margin: 0 auto 18px;
 }
@@ -70,6 +84,7 @@ body {
   display: flex;
   gap: 12px;
   align-items: center;
+  margin-right: auto;
 }
 
 .brand-mark {
@@ -206,12 +221,28 @@ body {
   font-size: 12.5px;
 }
 
-/* ---------- 地图 ---------- */
+/* ---------- 地图：斜俯视舞台 ----------
+   视角照着《植物大战僵尸》那套 2.5D 来做：
+   - .board 只做一件事——绕 X 轴往后倒，地面就变成一片有透视的平面；
+   - 站在地面上的东西（机器狗、货箱）外面包一层 .billboard，把倾斜
+     反向旋转回去，于是它们永远正对镜头，像插在场景里的立牌；
+   - 立牌内部按屏幕像素画，所以不会被压扁，也没有「贴图拉伸」的糊感。 */
 
 .board-wrap {
   position: relative;
   display: flex;
   justify-content: center;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--stage-h, 440px);
+  perspective: 3000px;
+  perspective-origin: 50% 16%;
 }
 
 /* 地图还没拿到时，board 里没有格子；留出高度让占位提示有地方显示 */
@@ -220,14 +251,17 @@ body {
 }
 
 .board {
+  position: relative;
   display: grid;
   gap: var(--board-gap);
   width: 100%;
-  max-width: 620px;
-  margin: 0 auto;
+  max-width: 560px;
   grid-template-columns: var(--axis) repeat(var(--columns, 8), minmax(0, 1fr));
   grid-auto-rows: auto;
   padding: 2px;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--tilt));
+  transform-origin: 50% 50%;
 }
 
 .axis-corner {
@@ -235,6 +269,7 @@ body {
   height: var(--axis);
 }
 
+/* 坐标数字立起来看，否则会被压到只剩一半高 */
 .axis {
   display: flex;
   align-items: center;
@@ -243,6 +278,8 @@ body {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   user-select: none;
+  transform: rotateX(calc(-1 * var(--tilt)));
+  transform-style: preserve-3d;
 }
 
 .axis-x {
@@ -260,47 +297,260 @@ body {
   justify-content: center;
   aspect-ratio: 1;
   border: 1px solid var(--cell-stroke);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--cell-free);
   color: var(--muted);
   font-size: 11px;
   line-height: 1;
+  transform-style: preserve-3d;
   transition: border-color 120ms ease, background-color 120ms ease;
 }
 
+/* 障碍物：地面上留一块压暗的底，货箱由 .billboard 立在上面 */
 .cell--block {
-  border-color: #33424e;
-  background:
-    repeating-linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.09) 0 6px,
-      rgba(255, 255, 255, 0) 6px 12px
-    ),
-    var(--block);
-  color: var(--block-ink);
-  font-size: clamp(12px, 1.6vw, 15px);
-  font-weight: 600;
+  border-color: #c3ced7;
+  background: #e7edf2;
 }
 
+/* 机器人脚下：一圈橙色地灯，立牌站在上面 */
 .cell--robot {
-  flex-direction: column;
-  gap: 1px;
-  border-color: #c4520f;
-  background: var(--robot);
-  color: var(--robot-ink);
-  box-shadow: 0 0 0 3px rgba(236, 106, 36, 0.22);
+  border-color: rgba(236, 106, 36, 0.55);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(236, 106, 36, 0.34), rgba(236, 106, 36, 0.05) 72%),
+    var(--cell-free);
 }
 
-.cell--robot .robot-arrow {
-  font-size: clamp(15px, 2.2vw, 20px);
-  line-height: 1;
-  transition: transform 180ms ease;
+/* 朝向：从脚下往外散开的一道光锥，跟着 heading 转 */
+.facing {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 132%;
+  height: 62%;
+  transform-origin: 0 50%;
+  transform: translateY(-50%) rotate(var(--heading-deg, 0deg));
+  background: linear-gradient(90deg, rgba(236, 106, 36, 0.5), rgba(236, 106, 36, 0));
+  clip-path: polygon(0 38%, 100% 0, 100% 100%, 0 62%);
+  pointer-events: none;
 }
 
-.cell--robot .robot-tag {
-  font-size: 10px;
-  letter-spacing: 0.12em;
+/* 立牌：把地面的倾斜转回去，内部从此按屏幕坐标摆放 */
+.billboard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: translateZ(2px) rotateX(calc(-1 * var(--tilt)));
+  pointer-events: none;
+}
+
+/* 立牌里的精灵：以「脚下」为锚点，translateX(-50%) 让身体居中在格子上 */
+.sprite {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: block;
+  overflow: visible;
+  transform: translateX(-50%) rotateY(var(--turn, 0deg)) scaleX(var(--flip, 1));
+  transform-origin: 50% 100%;
+}
+
+.billboard--dog .sprite {
+  width: calc(var(--cell-px, 64px) * 1.5);
+  height: auto;
+  filter: drop-shadow(0 3px 5px rgba(20, 32, 42, 0.38));
+}
+
+.billboard--crate .sprite {
+  width: calc(var(--cell-px, 64px) * 0.92);
+  height: auto;
+  filter: drop-shadow(0 2px 2px rgba(20, 32, 42, 0.24));
+}
+
+/* 货箱正面的「障」字：立牌坐标就是屏幕坐标，直接用绝对定位摆 */
+.crate-tag {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--cell-px, 64px) * 0.12);
+  transform: translateX(-50%);
+  color: #f2f7fa;
+  font-size: calc(var(--cell-px, 64px) * 0.22);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+/* 脚下的「机」字，像策略游戏里的单位标签，贴在地面上 */
+.unit-tag {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--cell-px, 64px) * -0.02);
+  transform: translateX(-50%);
+  color: #8a4a1c;
+  font-size: calc(var(--cell-px, 64px) * 0.2);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
+/* 机器狗配色（颜色写在 CSS 里，换模型只动 assets/scene.svg 与这几行） */
+.sprite .shell {
+  fill: url(#dogShell);
+  stroke: #96a6b2;
+  stroke-width: 1.1;
+}
+
+.sprite .shell-head {
+  fill: url(#dogHead);
+  stroke: #96a6b2;
+  stroke-width: 1.1;
+}
+
+.sprite .belly {
+  fill: #c9d5dd;
+}
+
+.sprite .stripe {
+  fill: var(--robot);
   opacity: 0.92;
+}
+
+.sprite .joint {
+  fill: #6d7e8b;
+}
+
+.sprite .visor {
+  fill: #24313b;
+}
+
+.sprite .eye {
+  fill: #ffb066;
+}
+
+.sprite .eye--dim {
+  fill: #7f8e99;
+}
+
+.sprite .lidar-base {
+  fill: #5b6a76;
+}
+
+.sprite .lidar {
+  fill: #2c3942;
+}
+
+.sprite .muzzle {
+  fill: #909fac;
+}
+
+.sprite .antenna {
+  stroke: #909fac;
+  fill: none;
+}
+
+.sprite .antenna-tip {
+  fill: var(--robot);
+}
+
+.sprite .tail {
+  stroke: #909fac;
+}
+
+.sprite .tail-tip {
+  fill: var(--robot);
+}
+
+.sprite .leg-far rect {
+  fill: #aebbc5;
+}
+
+.sprite .leg-near rect {
+  fill: #e8eef2;
+  stroke: #9dabb7;
+  stroke-width: 1;
+}
+
+.sprite .crate-top {
+  fill: url(#crateTop);
+}
+
+.sprite .crate-left {
+  fill: #2f3c47;
+}
+
+.sprite .crate-right {
+  fill: #3b4a56;
+}
+
+.sprite .crate-edge {
+  stroke: rgba(255, 255, 255, 0.24);
+  stroke-width: 1.6;
+}
+
+.sprite .crate-band {
+  stroke: rgba(255, 255, 255, 0.13);
+  stroke-width: 3;
+}
+
+/* 关节：以各自包围盒的「顶边中点」为轴，正好是髋/膝的转轴 */
+.sprite .thigh,
+.sprite .calf {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+}
+
+/* 走起来：对角步态，前后腿差半拍 */
+.sprite.is-walking .thigh {
+  animation: gait-thigh 420ms linear infinite;
+}
+
+.sprite.is-walking .calf {
+  animation: gait-calf 420ms linear infinite;
+}
+
+.sprite.is-walking .leg-far.thigh,
+.sprite.is-walking .leg-far.calf {
+  animation-delay: -210ms;
+}
+
+@keyframes gait-thigh {
+  0%,
+  100% {
+    transform: rotate(-13deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+
+@keyframes gait-calf {
+  0%,
+  100% {
+    transform: rotate(5deg);
+  }
+  30% {
+    transform: rotate(26deg);
+  }
+  62% {
+    transform: rotate(2deg);
+  }
+}
+
+/* 站着时轻微起伏，像在做姿态保持 */
+.sprite:not(.is-walking) .dog {
+  animation: idle-bob 2600ms ease-in-out infinite;
+}
+
+@keyframes idle-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.4px);
+  }
 }
 
 /* 走过的格子：淡蓝底 + 一个小圆点，和「空地」区分开；不依赖颜色，图例里也标了 */
@@ -318,10 +568,9 @@ body {
   background: var(--visited-dot);
 }
 
-/* 机器人移动：从上一格滑到新格，位移由 JS 写进 --dx/--dy（单位是「格」） */
+/* 机器人移动：整格（连同立牌）从上一格滑过来，位移由 JS 写进 --dx/--dy */
 .cell--robot.is-moved {
-  z-index: 1;
-  animation: slide-in 200ms cubic-bezier(0.22, 0.68, 0.3, 1);
+  animation: slide-in 260ms cubic-bezier(0.22, 0.68, 0.3, 1);
 }
 
 @keyframes slide-in {
@@ -335,9 +584,12 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .cell,
-  .cell--robot .robot-arrow {
+  .axis {
     transition: none;
   }
+  .sprite.is-walking .thigh,
+  .sprite.is-walking .calf,
+  .sprite:not(.is-walking) .dog,
   .cell--robot.is-moved {
     animation: none;
   }
@@ -647,4 +899,358 @@ kbd {
   border-radius: 10px;
   background: #fdf2f3;
   color: var(--err);
+}
+
+/* ================= 场景选择、自由移动、禁止通行牌 ================= */
+
+/* 左上角的「场景」按钮：平时不抢眼，需要用的时候一眼能看到 */
+.scene-btn {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--cell-stroke);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.scene-btn:hover,
+.scene-btn:focus-visible {
+  color: var(--ink);
+  border-color: #c1ced8;
+}
+
+.scene-btn-glyph {
+  color: var(--robot);
+  font-size: 9px;
+}
+
+/* 控制模式切换 */
+.mode {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  margin: 2px 0 12px;
+  border-radius: 11px;
+  background: #edf1f4;
+}
+
+.mode-btn {
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.mode-btn.is-on {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(20, 32, 42, 0.14);
+}
+
+.key.is-held {
+  border-color: #e2a377;
+  background: #fdeee3;
+  transform: translateY(1px);
+}
+
+/* 地面上的角色：位置用 translate3d 推进，格点模式下由 transition 补间 */
+.actor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: translate3d(0, 0, 1px);
+  transition: transform 220ms cubic-bezier(0.22, 0.68, 0.3, 1);
+  pointer-events: none;
+}
+
+.actor.is-free {
+  transition: none;
+}
+
+.actor-ground {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+.actor-halo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--cell-px, 64px) * 0.94);
+  height: calc(var(--cell-px, 64px) * 0.94);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(236, 106, 36, 0.32), rgba(236, 106, 36, 0) 72%);
+}
+
+/* 光锥挂在角色身上，所以它贴着走，不再固定在某个格子里 */
+.actor .facing {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--cell-px, 64px) * 1.16);
+  height: calc(var(--cell-px, 64px) * 0.52);
+  transform-origin: 0 50%;
+  transform: translateY(-50%) rotate(var(--heading-deg, 0deg));
+  background: linear-gradient(90deg, rgba(236, 106, 36, 0.5), rgba(236, 106, 36, 0));
+  clip-path: polygon(0 38%, 100% 0, 100% 100%, 0 62%);
+  pointer-events: none;
+}
+
+/* 禁止通行牌 */
+.cell--block {
+  border-color: #e0c2bc;
+  background: #f8ebe8;
+}
+
+.billboard--sign .sprite {
+  width: calc(var(--cell-px, 64px) * 0.92);
+  height: auto;
+  filter: drop-shadow(0 3px 4px rgba(20, 32, 42, 0.34));
+}
+
+.sprite .sign-board {
+  fill: #c9352b;
+  stroke: #8e231c;
+  stroke-width: 2;
+}
+
+.sprite .sign-inner {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.2;
+  opacity: 0.92;
+}
+
+.sprite .sign-text {
+  fill: #ffffff;
+  font-family: inherit;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-anchor: middle;
+}
+
+.sprite .sign-leg {
+  fill: #5c6b77;
+}
+
+.sprite .sign-foot {
+  fill: #46535d;
+}
+
+/* ---------------- 开场：选地图 + 选机器人 ---------------- */
+
+.start {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(14, 24, 32, 0.44);
+  backdrop-filter: blur(7px);
+  animation: start-in 220ms ease both;
+}
+
+.start[hidden] {
+  display: none;
+}
+
+@keyframes start-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.start-card {
+  width: min(580px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 26px 26px 22px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(12, 22, 30, 0.34);
+}
+
+.start-card .kicker {
+  margin: 0 0 8px;
+  color: var(--robot);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.start-card h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  letter-spacing: 0.01em;
+}
+
+.start-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.pick-group {
+  margin-top: 18px;
+}
+
+.pick-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pick {
+  position: relative;
+  display: flex;
+  flex: 1 1 230px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--cell-stroke);
+  border-radius: 14px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.pick:hover {
+  border-color: #c1ced8;
+}
+
+.pick.is-on {
+  border-color: var(--robot);
+  box-shadow: 0 0 0 3px rgba(236, 106, 36, 0.14);
+}
+
+.pick-art {
+  position: relative;
+  flex: none;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #f7fafc, #e9eff3);
+}
+
+.pick-art--map {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 8px;
+}
+
+.pick-art--map span {
+  border: 1px solid #d7e0e6;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.pick-art--map span:nth-child(7) {
+  border-color: #a82a22;
+  background: #c9352b;
+}
+
+.pick-art--robot .sprite {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 72px;
+  height: auto;
+  transform: translateX(-50%);
+  filter: none;
+}
+
+.pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pick-name {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.pick-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pick-tick {
+  margin-left: auto;
+  color: var(--robot);
+  font-weight: 800;
+  opacity: 0;
+}
+
+.pick.is-on .pick-tick {
+  opacity: 1;
+}
+
+.start-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 22px;
+}
+
+.btn-primary {
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--robot);
+  color: #fff;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(236, 106, 36, 0.28);
+}
+
+.btn-primary:hover {
+  background: #d95f1d;
+}
+
+.start-note {
+  flex: 1 1 200px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
