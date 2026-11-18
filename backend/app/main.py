@@ -75,7 +75,8 @@ def create_app() -> FastAPI:
             return error(400, "invalid_json", "请求体必须是合法的 JSON")
 
         direction = payload.get("direction") if isinstance(payload, dict) else None
-
+        if not isinstance(direction, str):
+            return error(400, "invalid_direction", "direction 只能是 up、down、left、right")
         try:
             state = SIM.move(direction)
         except InvalidDirection:
