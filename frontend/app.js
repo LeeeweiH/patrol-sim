@@ -518,11 +518,12 @@
     const nx = actor.x + dx;
     const ny = actor.y + dy;
     let moved = false;
-    if (!hits(nx, actor.y)) {
+    // 只有「这一个轴上真的要动」才去试，否则顶着墙时也会被算成在走（腿一直蹬）
+    if (Math.abs(dx) > 1e-6 && !hits(nx, actor.y)) {
       actor.x = nx;
       moved = true;
     }
-    if (!hits(actor.x, ny)) {
+    if (Math.abs(dy) > 1e-6 && !hits(actor.x, ny)) {
       actor.y = ny;
       moved = true;
     }
