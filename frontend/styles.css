@@ -1526,3 +1526,55 @@ kbd {
   width: 100%;
   max-width: min(100%, 78vw);
 }
+/* ---------------- 红门 / 蓝门（可通行地标） ---------------- */
+
+.cell--gate {
+  border-color: #c9d3da;
+}
+
+.billboard--gate-red .sprite,
+.billboard--gate-blue .sprite {
+  width: calc(var(--cell-px, 64px) * 0.86);
+  height: auto;
+  filter: drop-shadow(0 4px 6px rgba(18, 28, 36, 0.3));
+}
+
+.billboard--gate-red .sprite {
+  color: #c9352b;
+}
+
+.billboard--gate-blue .sprite {
+  color: #2f6fb5;
+}
+
+.sprite .gate-frame {
+  fill: #1b242c;
+  stroke: currentColor;
+  stroke-width: 5;
+}
+
+.sprite .gate-inner {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  opacity: 0.45;
+}
+
+.sprite .gate-arrow {
+  fill: currentColor;
+  opacity: 0.92;
+}
+
+.sprite .gate-leg {
+  fill: #3d4a54;
+}
+
+.sprite .gate-glow {
+  fill: currentColor;
+  opacity: 0.16;
+}
+.swatch-gate {
+  background: linear-gradient(135deg, #c9352b 0 48%, #2f6fb5 52% 100%);
+  color: #fff;
+  font-size: 10px;
+}

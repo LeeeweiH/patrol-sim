@@ -96,7 +96,7 @@
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
   const HEADING_FLIP = { right: 1, left: -1, up: 1, down: 1 };
 
-  const sprites = { dog: null, sign: null, crate: null };
+  const sprites = { dog: null, sign: null, crate: null, "gate-red": null, "gate-blue": null };
 
   async function loadSprites() {
     try {
@@ -116,6 +116,12 @@
 
       sprites.dog = dog;
       sprites.sign = sign;
+
+      // 红门蓝门缺失时不算致命错误：地图照常跑，只是少了两个地标
+      const gateRed = holder.querySelector("#gate-red");
+      const gateBlue = holder.querySelector("#gate-blue");
+      if (gateRed) sprites["gate-red"] = gateRed;
+      if (gateBlue) sprites["gate-blue"] = gateBlue;
       sprites.crate = holder.querySelector("#crate");
       document.body.append(holder);
       return true;
@@ -451,26 +457,93 @@
     return [];
   }
 
-  /** 两点之间能不能直着过去（沿途采样做碰撞检查），用来把折线拉直。 */
-  function canWalkStraight(a, b) {
-    const dist = Math.hypot(b.x - a.x, b.y - a.y);
-    const samples = Math.max(2, Math.ceil(dist / 0.12));
-    for (let i = 1; i <= samples; i += 1) {
-      const t = i / samples;
-      if (hits(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return false;
+  /**
+   * 线段与轴对齐矩形是否相交（slab 法）。
+   * 用精确几何判断，不用采样，拐角不会漏。
+   */
+  function segmentHitsRect(px, py, qx, qy, minX, minY, maxX, maxY) {
+    const dx = qx - px;
+    const dy = qy - py;
+    let t0 = 0;
+    let t1 = 1;
+
+    if (Math.abs(dx) < 1e-9) {
+      if (px < minX || px > maxX) return false;
+    } else {
+      let ta = (minX - px) / dx;
+      let tb = (maxX - px) / dx;
+      if (ta > tb) {
+        const swap = ta;
+        ta = tb;
+        tb = swap;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return false;
     }
+
+    if (Math.abs(dy) < 1e-9) {
+      if (py < minY || py > maxY) return false;
+    } else {
+      let ta = (minY - py) / dy;
+      let tb = (maxY - py) / dy;
+      if (ta > tb) {
+        const swap = ta;
+        ta = tb;
+        tb = swap;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return false;
+    }
+
     return true;
   }
 
-  /** 格子路径 → 可直接跟随的路点，顺手把能直连的中间点剪掉。 */
+  /**
+   * 扫掠碰撞：半径 ROBOT_RADIUS 的圆沿 a→b 扫过去，会不会碰到障碍或越界。
+   * 把每个障碍方块按半径膨胀成 Minkowski 矩形再做线段求交，
+   * 等价于圆的连续碰撞检测——逐点采样会在拐角处漏判，这里不会。
+   */
+  function blockedAlong(ax, ay, bx, by) {
+    if (!currentState) return true;
+    const grid = currentState.grid;
+    const r = ROBOT_RADIUS;
+
+    if (Math.min(ax, bx) < 0 || Math.max(ax, bx) > grid.width - 1) return true;
+    if (Math.min(ay, by) < 0 || Math.max(ay, by) > grid.height - 1) return true;
+
+    for (let i = 0; i < grid.obstacles.length; i += 1) {
+      const ox = grid.obstacles[i][0];
+      const oy = grid.obstacles[i][1];
+      const minX = ox - 0.5 - r;
+      const maxX = ox + 0.5 + r;
+      const minY = oy - 0.5 - r;
+      const maxY = oy + 0.5 + r;
+      if (segmentHitsRect(ax, ay, bx, by, minX, minY, maxX, maxY)) return true;
+    }
+    return false;
+  }
+
+  /** 两点之间能不能直着过去（精确扫掠判定），用来把折线拉直。 */
+  function canWalkStraight(a, b) {
+    return !blockedAlong(a.x, a.y, b.x, b.y);
+  }
+
+  /**
+   * 格子路径 → 可直接跟随的路点。
+   * 起点用角色的真实坐标（不是四舍五入后的格子），否则半路改目标时
+   * 第一段会从一个「假起点」出发，斜着切过障碍。
+   */
   function buildWaypoints(cells, target) {
-    const points = cells.map((cell) => ({ x: cell.x, y: cell.y }));
+    const points = [{ x: actor.x, y: actor.y }];
+    for (let i = 0; i < cells.length; i += 1) points.push({ x: cells[i].x, y: cells[i].y });
     if (target) points.push(target);
 
     const out = [];
     let index = 0;
     let guard = 0;
-    while (index < points.length - 1 && guard < 200) {
+    while (index < points.length - 1 && guard < 400) {
       guard += 1;
       let reach = index + 1;
       for (let probe = points.length - 1; probe > index + 1; probe -= 1) {
@@ -513,20 +586,34 @@
     return { x: x / len, y: y / len };
   }
 
+  /**
+   * 走一步。先整段做一次精确扫掠；被挡就退化成两轴分别推进，
+   * 于是贴墙时还能顺着另一轴滑走。全程不瞬移，不会穿模。
+   */
+  function advance(dx, dy) {
+    if (!currentState) return false;
+    const ax = actor.x;
+    const ay = actor.y;
+    if (!blockedAlong(ax, ay, ax + dx, ay + dy)) {
+      actor.x = ax + dx;
+      actor.y = ay + dy;
+      return true;
+    }
+    let moved = false;
+    if (Math.abs(dx) > 1e-9 && !blockedAlong(ax, ay, ax + dx, ay)) {
+      actor.x = ax + dx;
+      moved = true;
+    }
+    if (Math.abs(dy) > 1e-9 && !blockedAlong(actor.x, ay, actor.x, ay + dy)) {
+      actor.y = ay + dy;
+      moved = true;
+    }
+    return moved;
+  }
+
   /** 按轴分别推进：撞到障碍只停被挡的那一轴，另一轴照走，于是能贴着障碍滑过去。 */
   function nudge(dx, dy) {
-    const nx = actor.x + dx;
-    const ny = actor.y + dy;
-    let moved = false;
-    // 只有「这一个轴上真的要动」才去试，否则顶着墙时也会被算成在走（腿一直蹬）
-    if (Math.abs(dx) > 1e-6 && !hits(nx, actor.y)) {
-      actor.x = nx;
-      moved = true;
-    }
-    if (Math.abs(dy) > 1e-6 && !hits(actor.x, ny)) {
-      actor.y = ny;
-      moved = true;
-    }
+    const moved = advance(dx, dy);
     if (Math.abs(dx) > Math.abs(dy)) {
       if (dx > 0) actor.heading = "right";
       else if (dx < 0) actor.heading = "left";
@@ -546,11 +633,11 @@
     const stepLength = FREE_SPEED * dt;
 
     if (dist <= stepLength) {
-      if (!hits(next.x, next.y)) {
-        actor.x = next.x;
-        actor.y = next.y;
-      }
-      actor.path.shift();
+      // 最后一步也要经过扫掠测试，不能直接赋值瞬移过去
+      const arrived = advance(dx, dy);
+      if (arrived) actor.path.shift();
+      else actor.path.length = 0;
+      return arrived;
     } else {
       const ux = dx / dist;
       const uy = dy / dist;
@@ -559,9 +646,10 @@
         if (Math.abs(ux) > Math.abs(uy)) actor.heading = ux > 0 ? "right" : "left";
         else actor.heading = uy > 0 ? "down" : "up";
       }
-      nudge(ux * stepLength, uy * stepLength);
+      const walked = advance(ux * stepLength, uy * stepLength);
+      if (!walked) actor.path.length = 0;
+      return walked;
     }
-    return true;
   }
 
   function frame(timestamp) {
@@ -714,6 +802,15 @@
     return jumped;
   }
 
+  /** 红门在左上角、蓝门在右下角，都只是地标——判定上和普通可通行格一样。 */
+  function gateAt(state, x, y) {
+    if (!state) return null;
+    const grid = state.grid;
+    if (x === 0 && y === 0) return "gate-red";
+    if (x === grid.width - 1 && y === grid.height - 1) return "gate-blue";
+    return null;
+  }
+
   function makeCell(state, x, y) {
     const cell = document.createElement("div");
     cell.className = "cell";
@@ -739,6 +836,17 @@
     } else if (trail.has(cellKey(x, y))) {
       cell.classList.add("cell--visited");
       label = "第 " + y + " 行第 " + x + " 列，可通行，已走过";
+    }
+
+    // 红门（左上）与蓝门（右下）：只是标记，不是障碍，谁都能踩上去
+    const gate = gateAt(state, x, y);
+    if (gate) {
+      cell.classList.add("cell--gate");
+      const door = makeBillboard(gate);
+      const sprite = cloneSprite(gate);
+      if (sprite) door.append(sprite);
+      cell.append(door);
+      label += "，" + (gate === "gate-red" ? "红门起点" : "蓝门终点");
     }
 
     cell.setAttribute("aria-label", label);
