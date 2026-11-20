@@ -96,7 +96,7 @@
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
   const HEADING_FLIP = { right: 1, left: -1, up: 1, down: 1 };
 
-  const sprites = { dog: null, sign: null, crate: null, "gate-red": null, "gate-blue": null };
+  const sprites = { dog: null, sign: null, crate: null, "gate-in": null, "gate-out": null };
 
   async function loadSprites() {
     try {
@@ -117,11 +117,11 @@
       sprites.dog = dog;
       sprites.sign = sign;
 
-      // 红门蓝门缺失时不算致命错误：地图照常跑，只是少了两个地标
-      const gateRed = holder.querySelector("#gate-red");
-      const gateBlue = holder.querySelector("#gate-blue");
-      if (gateRed) sprites["gate-red"] = gateRed;
-      if (gateBlue) sprites["gate-blue"] = gateBlue;
+      // 入口出口缺失时不算致命错误：地图照常跑，只是少了两个地标
+      const gateIn = holder.querySelector("#gate-in");
+      const gateOut = holder.querySelector("#gate-out");
+      if (gateIn) sprites["gate-in"] = gateIn;
+      if (gateOut) sprites["gate-out"] = gateOut;
       sprites.crate = holder.querySelector("#crate");
       document.body.append(holder);
       return true;
@@ -802,12 +802,12 @@
     return jumped;
   }
 
-  /** 红门在左上角、蓝门在右下角，都只是地标——判定上和普通可通行格一样。 */
+  /** 入口在左上角、出口在右下角，都只是地标——判定上和普通可通行格一样。 */
   function gateAt(state, x, y) {
     if (!state) return null;
     const grid = state.grid;
-    if (x === 0 && y === 0) return "gate-red";
-    if (x === grid.width - 1 && y === grid.height - 1) return "gate-blue";
+    if (x === 0 && y === 0) return "gate-in";
+    if (x === grid.width - 1 && y === grid.height - 1) return "gate-out";
     return null;
   }
 
@@ -838,7 +838,7 @@
       label = "第 " + y + " 行第 " + x + " 列，可通行，已走过";
     }
 
-    // 红门（左上）与蓝门（右下）：只是标记，不是障碍，谁都能踩上去
+    // 入口（左上）与出口（右下）：只是标记，不是障碍，谁都能踩上去
     const gate = gateAt(state, x, y);
     if (gate) {
       cell.classList.add("cell--gate");
@@ -846,7 +846,7 @@
       const sprite = cloneSprite(gate);
       if (sprite) door.append(sprite);
       cell.append(door);
-      label += "，" + (gate === "gate-red" ? "红门起点" : "蓝门终点");
+      label += "，" + (gate === "gate-in" ? "入口起点" : "出口终点");
     }
 
     cell.setAttribute("aria-label", label);

@@ -136,8 +136,8 @@
       <polyline class="crate-band" points="68,57 68,77" fill="none" />
     </g>
   </svg>
-  <!-- 红门 / 蓝门：明日方舟那种出入口地标，颜色由 currentColor 决定 -->
-  <svg id="gate-red" viewBox="0 0 100 120">
+  <!-- 入口 / 出口：地图起点与终点的可通行地标，颜色由 currentColor 决定 -->
+  <svg id="gate-in" viewBox="0 0 100 120">
     <ellipse class="gate-glow" cx="50" cy="108" rx="34" ry="7"/>
     <rect class="gate-leg" x="22" y="86" width="9" height="22" rx="3"/>
     <rect class="gate-leg" x="69" y="86" width="9" height="22" rx="3"/>
@@ -146,7 +146,7 @@
     <path class="gate-arrow" d="M50 36 L72 62 H60 V82 H40 V62 H28 Z"/>
   </svg>
 
-  <svg id="gate-blue" viewBox="0 0 100 120">
+  <svg id="gate-out" viewBox="0 0 100 120">
     <ellipse class="gate-glow" cx="50" cy="108" rx="34" ry="7"/>
     <rect class="gate-leg" x="22" y="86" width="9" height="22" rx="3"/>
     <rect class="gate-leg" x="69" y="86" width="9" height="22" rx="3"/>

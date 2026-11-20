@@ -22,7 +22,7 @@
   --radius: 12px;
   --axis: 22px;
   --board-gap: 4px;
-  /* 相机：地面往后倒 56°，约等于从 34° 俯角看下去，接近 PvZ 那种斜俯视 */
+  /* 相机：地面往后倒 56°，约等于从 34° 俯角看下去，接近 2.5D 等距视角那种斜俯视 */
   --tilt: 56deg;
   /* 单格边长，由 JS 量出来后写进来，立牌尺寸都按它换算 */
   --cell-px: 64px;
@@ -291,7 +291,7 @@ body {
 }
 
 /* ---------- 地图：斜俯视舞台 ----------
-   视角照着《植物大战僵尸》那套 2.5D 来做：
+   视角按 2.5D 斜俯视（等距投影）来做：
    - .board 只做一件事——绕 X 轴往后倒，地面就变成一片有透视的平面；
    - 站在地面上的东西（机器狗、货箱）外面包一层 .billboard，把倾斜
      反向旋转回去，于是它们永远正对镜头，像插在场景里的立牌；
@@ -725,8 +725,8 @@ body {
 }
 
 .swatch-block {
-  background: var(--block);
-  color: var(--block-ink);
+  background: #b3261e;
+  color: #ffffff;
 }
 
 .swatch-robot {
@@ -1101,8 +1101,9 @@ kbd {
 }
 
 .sprite .sign-board {
-  fill: #c9352b;
-  stroke: #8e231c;
+  /* 牌子用交通标志的警示红，和入口/出口的铜橙、墨青区分开 */
+  fill: #b3261e;
+  stroke: #7a1912;
   stroke-width: 2;
 }
 
@@ -1253,7 +1254,7 @@ kbd {
 
 .pick-art--map span:nth-child(7) {
   border-color: #a82a22;
-  background: #c9352b;
+  background: #c2521f;
 }
 
 .pick-art--robot .sprite {
@@ -1526,25 +1527,25 @@ kbd {
   width: 100%;
   max-width: min(100%, 78vw);
 }
-/* ---------------- 红门 / 蓝门（可通行地标） ---------------- */
+/* ---------------- 入口 / 出口（可通行地标） ---------------- */
 
 .cell--gate {
   border-color: #c9d3da;
 }
 
-.billboard--gate-red .sprite,
-.billboard--gate-blue .sprite {
+.billboard--gate-in .sprite,
+.billboard--gate-out .sprite {
   width: calc(var(--cell-px, 64px) * 0.86);
   height: auto;
   filter: drop-shadow(0 4px 6px rgba(18, 28, 36, 0.3));
 }
 
-.billboard--gate-red .sprite {
-  color: #c9352b;
+.billboard--gate-in .sprite {
+  color: #c2521f;
 }
 
-.billboard--gate-blue .sprite {
-  color: #2f6fb5;
+.billboard--gate-out .sprite {
+  color: #1d6f7a;
 }
 
 .sprite .gate-frame {
@@ -1574,7 +1575,7 @@ kbd {
   opacity: 0.16;
 }
 .swatch-gate {
-  background: linear-gradient(135deg, #c9352b 0 48%, #2f6fb5 52% 100%);
+  background: linear-gradient(135deg, #c2521f 0 48%, #1d6f7a 52% 100%);
   color: #fff;
   font-size: 10px;
 }
