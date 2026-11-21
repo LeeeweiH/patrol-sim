@@ -35,6 +35,12 @@
     --board-gap: 3px;
   }
 
+  /* 窄屏放不下「模式 + 摇杆开关」一行，开关单独占一行 */
+  .switch {
+    display: flex;
+    margin-top: 8px;
+  }
+
   /* 窄屏格子小，立牌跟着收一点，免得糊成一团 */
   .billboard--dog .sprite {
     width: calc(var(--cell-px, 48px) * 1.3);
@@ -52,6 +58,11 @@
 html,
 body {
   margin: 0;
+}
+
+/* 斜俯视会把地图撑出约 8px 的透视投影，别让它变成横向滚动条 */
+html {
+  overflow-x: hidden;
 }
 
 body {
@@ -176,12 +187,70 @@ body {
 /* ---------- 布局 ---------- */
 
 .layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(292px, 340px);
-  gap: clamp(14px, 1.8vw, 22px);
-  align-items: start;
-  max-width: 1040px;
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
+  max-width: min(1560px, 100%);
   margin: 0 auto;
+}
+
+.map-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 右侧面板：点箭头收起来，地图就占满整行 */
+.side-panel {
+  flex: 0 0 auto;
+  width: clamp(292px, 26vw, 360px);
+  transition: width 260ms ease, opacity 180ms ease, padding 260ms ease, border-width 260ms ease;
+}
+
+.layout.is-collapsed .side-panel {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.side-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 62px;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 1px solid var(--cell-stroke);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.side-toggle:hover,
+.side-toggle:focus-visible {
+  color: var(--ink);
+  border-color: #c1ced8;
+}
+
+.side-toggle-glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.side-toggle-text {
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  writing-mode: vertical-rl;
 }
 
 @media (max-width: 900px) {
@@ -240,8 +309,11 @@ body {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: var(--stage-h, 440px);
-  perspective: 3000px;
+  /* 高度跟宽度成比例：投影后的地面约为宽度的 0.56，再给立牌留一点头顶空间。
+     用 aspect-ratio 而不是 JS 量高度，窗口怎么变都不会错位。 */
+  height: auto;
+  aspect-ratio: 1 / 0.7;
+  perspective: 6000px;
   perspective-origin: 50% 16%;
 }
 
@@ -255,7 +327,7 @@ body {
   display: grid;
   gap: var(--board-gap);
   width: 100%;
-  max-width: 560px;
+  max-width: min(92%, 1100px);
   grid-template-columns: var(--axis) repeat(var(--columns, 8), minmax(0, 1fr));
   grid-auto-rows: auto;
   padding: 2px;
@@ -1044,9 +1116,9 @@ kbd {
 .sprite .sign-text {
   fill: #ffffff;
   font-family: inherit;
-  font-size: 30px;
+  font-size: 54px;
   font-weight: 800;
-  letter-spacing: 1.5px;
+  letter-spacing: 0;
   text-anchor: middle;
 }
 
@@ -1253,4 +1325,204 @@ kbd {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
+}
+/* ================= 摇杆开关与虚拟摇杆 ================= */
+
+.switch {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  padding: 4px 2px;
+  margin: 2px 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: #d7e0e6;
+  transition: background 140ms ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 32, 42, 0.28);
+  transition: transform 140ms ease;
+}
+
+.switch[aria-checked="true"] .switch-track {
+  background: var(--robot);
+}
+
+.switch[aria-checked="true"] .switch-thumb {
+  transform: translateX(16px);
+}
+
+.switch[aria-checked="true"] .switch-text {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.dpad[hidden],
+.stick[hidden] {
+  display: none;
+}
+
+.stick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+
+.stick-base {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 1px solid var(--cell-stroke);
+  background:
+    radial-gradient(circle at 50% 42%, #ffffff 0%, #eef3f6 62%, #e4ebf0 100%);
+  box-shadow: inset 0 2px 6px rgba(20, 32, 42, 0.08);
+  touch-action: none;
+  cursor: grab;
+}
+
+.stick-base.is-active {
+  cursor: grabbing;
+}
+
+.stick-ring {
+  position: absolute;
+  inset: 17px;
+  border-radius: 50%;
+  border: 1px dashed #c8d5de;
+}
+
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ff9152, #ec6a24);
+  box-shadow: 0 6px 14px rgba(236, 106, 36, 0.34);
+  transition: transform 110ms ease-out;
+}
+
+.stick-base.is-active .stick-knob {
+  transition: none;
+}
+
+.stick-cap {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+/* 窄屏：模式按钮和摇杆开关挤不下一行，开关单独占一行（放在文件末尾，确保盖过上面的基础样式） */
+@media (max-width: 620px) {
+  .switch {
+    display: flex;
+    margin-top: 8px;
+  }
+}
+/* 按住地图拖动时不选中文字、也不触发页面滚动 */
+.board {
+  touch-action: none;
+}
+
+.cell {
+  cursor: pointer;
+}
+
+.side-toggle {
+  margin: 18px 8px 0 10px;
+}
+/* 窄屏：右栏落到地图下面并占满宽度，折叠按钮就没意义了 */
+@media (max-width: 900px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .side-panel {
+    width: 100%;
+  }
+
+  .layout.is-collapsed .side-panel {
+    width: 100%;
+    padding-left: clamp(14px, 1.8vw, 22px);
+    padding-right: clamp(14px, 1.8vw, 22px);
+    border-width: 1px;
+    opacity: 1;
+    overflow: visible;
+    pointer-events: auto;
+  }
+
+  .side-toggle {
+    display: none;
+  }
+}
+/* 收起右栏后地图还能再放大一点（上限压到 1200，避免透视把两边撑出视口） */
+.layout.is-collapsed .map-panel .board {
+  max-width: min(100%, 78vw);
+}
+/* 收起标签只留箭头，文字藏起来但保留给读屏 */
+.side-toggle {
+  width: 28px;
+  height: 54px;
+}
+
+.side-toggle-glyph {
+  font-size: 17px;
+}
+
+.side-toggle-text {
+  display: none;
+}
+/* 兜底：每个面板自成层叠上下文，地图再大也不会盖住顶栏和右栏 */
+.panel {
+  position: relative;
+  z-index: 0;
+}
+
+.map-panel {
+  overflow: hidden;
+}
+/* 舞台高度只由宽度决定；地图绝对定位居中，不再把舞台撑高。
+   这样窗口（含 F11 全屏）怎么变，地图都按同一比例缩放。 */
+.stage {
+  display: block;
+  height: auto;
+  aspect-ratio: 1 / 0.72;
+  perspective-origin: 50% 22%;
+}
+
+.stage > .board {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 92%;
+  transform: translate(-50%, -50%) rotateX(var(--tilt));
+  transform-origin: 50% 50%;
+}
+
+.layout.is-collapsed .map-panel .stage > .board {
+  width: 100%;
+  max-width: min(100%, 78vw);
 }

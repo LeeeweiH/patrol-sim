@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=6" />
   </head>
   <body>
     <header class="topbar">
@@ -59,7 +59,19 @@
         </ul>
       </section>
 
-      <section class="panel side-panel" aria-labelledby="control-title">
+      <button
+        class="side-toggle"
+        id="side-toggle"
+        type="button"
+        aria-controls="side-panel"
+        aria-expanded="true"
+        title="收起右侧面板"
+      >
+        <span class="side-toggle-glyph" id="side-toggle-glyph" aria-hidden="true">›</span>
+        <span class="side-toggle-text">收起</span>
+      </button>
+
+      <section class="panel side-panel" id="side-panel" aria-labelledby="control-title">
         <div class="panel-head">
           <h2 id="control-title">手动控制</h2>
           <p class="hint" id="control-hint">点击地图走过去</p>
@@ -90,19 +102,32 @@
           <button class="mode-btn" type="button" data-mode="grid" aria-pressed="false">格点移动</button>
         </div>
 
-        <div class="dpad" role="group" aria-label="移动方向">
+        <button class="switch" id="stick-toggle" type="button" role="switch" aria-checked="false">
+          <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          <span class="switch-text">用网页摇杆移动</span>
+        </button>
+
+        <div class="dpad" id="dpad" role="group" aria-label="移动方向">
           <button class="key key-up" type="button" data-direction="up" aria-keyshortcuts="ArrowUp W" disabled>
-            <span class="key-glyph" aria-hidden="true">↑</span><span class="key-label">上</span>
+            <span class="key-glyph" aria-hidden="true">↑</span><span class="key-label">W</span>
           </button>
           <button class="key key-left" type="button" data-direction="left" aria-keyshortcuts="ArrowLeft A" disabled>
-            <span class="key-glyph" aria-hidden="true">←</span><span class="key-label">左</span>
+            <span class="key-glyph" aria-hidden="true">←</span><span class="key-label">A</span>
           </button>
           <button class="key key-down" type="button" data-direction="down" aria-keyshortcuts="ArrowDown S" disabled>
-            <span class="key-glyph" aria-hidden="true">↓</span><span class="key-label">下</span>
+            <span class="key-glyph" aria-hidden="true">↓</span><span class="key-label">S</span>
           </button>
           <button class="key key-right" type="button" data-direction="right" aria-keyshortcuts="ArrowRight D" disabled>
-            <span class="key-glyph" aria-hidden="true">→</span><span class="key-label">右</span>
+            <span class="key-glyph" aria-hidden="true">→</span><span class="key-label">D</span>
           </button>
+        </div>
+
+        <div class="stick" id="stick" hidden>
+          <div class="stick-base" id="stick-base" aria-label="移动摇杆，拖动控制机器人方向">
+            <span class="stick-ring" aria-hidden="true"></span>
+            <span class="stick-knob" id="stick-knob" aria-hidden="true"></span>
+          </div>
+          <p class="stick-cap">按住拖动，松手就停</p>
         </div>
 
         <button class="btn-ghost" id="reload" type="button" disabled>重新读取状态</button>
@@ -174,6 +199,6 @@
       <p class="noscript">本页面需要 JavaScript 才能显示地图和发送移动指令，请在浏览器中启用后刷新。</p>
     </noscript>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=6"></script>
   </body>
 </html>

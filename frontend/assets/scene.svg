@@ -117,7 +117,7 @@
       <rect class="sign-foot" x="71" y="136" width="28" height="8" rx="4" />
       <rect class="sign-board" x="8" y="14" width="104" height="74" rx="10" />
       <rect class="sign-inner" x="16" y="22" width="88" height="58" rx="6" />
-      <text class="sign-text" x="60" y="61">禁止通行</text>
+      <text class="sign-text" x="60" y="71">禁</text>
     </g>
   </svg>
 

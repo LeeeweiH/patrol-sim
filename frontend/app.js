@@ -36,6 +36,10 @@
   const els = {
     board: document.getElementById("board"),
     stage: document.getElementById("stage"),
+    layout: document.querySelector(".layout"),
+    sideToggle: document.getElementById("side-toggle"),
+    sideToggleGlyph: document.getElementById("side-toggle-glyph"),
+    sideToggleText: document.querySelector(".side-toggle-text"),
     placeholder: document.getElementById("placeholder"),
     mapMeta: document.getElementById("map-meta"),
     factPosition: document.getElementById("fact-position"),
@@ -50,6 +54,11 @@
     controlHint: document.getElementById("control-hint"),
     keysHint: document.getElementById("keys-hint"),
     keys: Array.from(document.querySelectorAll(".key[data-direction]")),
+    dpad: document.getElementById("dpad"),
+    stickWrap: document.getElementById("stick"),
+    stickBase: document.getElementById("stick-base"),
+    stickKnob: document.getElementById("stick-knob"),
+    stickToggle: document.getElementById("stick-toggle"),
     modeBtns: Array.from(document.querySelectorAll(".mode-btn")),
     openScene: document.getElementById("open-scene"),
     start: document.getElementById("start"),
@@ -81,7 +90,7 @@
    * 立牌素材放在 assets/scene.svg，页面启动时取一次、内联进 DOM，
    * 之后每处克隆一份——换模型（以后换角色、加时装）只改那个 svg。
    */
-  const SCENE_URL = "assets/scene.svg";
+  const SCENE_URL = "assets/scene.svg?v=4";
 
   const HEADING_DEG = { right: 0, down: 90, left: 180, up: -90 };
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
@@ -142,7 +151,8 @@
     const cell = els.board.querySelector(".cell");
     if (!cell) return null;
     const width = els.board.querySelectorAll(".axis-x").length;
-    const cellPx = cell.offsetWidth;
+    // 夹一下，异常尺寸时别把舞台撑坏
+    const cellPx = Math.max(24, Math.min(170, cell.offsetWidth));
     if (!cellPx) return null;
     const gap = parseFloat(getComputedStyle(els.board).gap) || 0;
     return {
@@ -159,10 +169,12 @@
    * 再把舞台高度收成「倾斜后真正看得见的高度 + 立牌高度」，
    * 否则旋转前后的布局高度对不上，地图下面会空出一大块。
    */
-  function fitStage() {
+  function fitStage(options) {
+    const instant = Boolean(options && options.instant);
     const cell = els.board.querySelector(".cell");
     if (!cell) return;
-    const cellPx = cell.offsetWidth;
+    // 夹一下，异常尺寸时别把舞台撑坏
+    const cellPx = Math.max(24, Math.min(170, cell.offsetWidth));
     const boardH = els.board.offsetHeight;
     if (!cellPx || !boardH) return;
 
@@ -172,6 +184,15 @@
 
     els.board.style.setProperty("--cell-px", cellPx + "px");
     els.stage.style.setProperty("--stage-h", Math.round(boardH * cos + cellPx * 1.15 + 24) + "px");
+
+    // 重排时先关掉 220ms 过渡，否则窗口一变角色会从旧位置「滑」过去，看着像在跳
+    if (instant && actor.node) {
+      actor.node.style.transition = "none";
+      applyActorTransform();
+      void actor.node.offsetWidth;
+      actor.node.style.transition = "";
+      return;
+    }
 
     applyActorTransform();
   }
@@ -361,7 +382,7 @@
   function hits(x, y) {
     if (!currentState) return true;
     const grid = currentState.grid;
-    const pad = 0.5 - ROBOT_RADIUS;
+    const pad = 0; // 圆心不越出最外圈格子中心，坐标永远不会出现负数
     if (x < -pad || y < -pad || x > grid.width - 1 + pad || y > grid.height - 1 + pad) return true;
 
     for (let i = 0; i < grid.obstacles.length; i += 1) {
@@ -478,6 +499,9 @@
   }
 
   function heldVector() {
+    // 摇杆优先：拖出死区以后就按摇杆方向走，键盘方向键先不管用
+    if (stick.on && stick.active) return { x: stick.dx, y: stick.dy };
+
     let x = 0;
     let y = 0;
     if (heldKeys.has("left")) x -= 1;
@@ -555,7 +579,11 @@
       moving = followPath(dt);
     }
 
-    if (moving !== actor.walking) setWalking(moving);
+    if (moving !== actor.walking) {
+      setWalking(moving);
+      // 停下来的时候补一次面板刷新，否则「状态」会一直停在「行走中」
+      if (!moving) updateFacts();
+    }
 
     if (!moving && actor.target) {
       // 走到终点了：补一次状态刷新，否则面板会停在「行走中」
@@ -629,6 +657,9 @@
       els.factStatus.textContent = STATUS_TEXT[currentState.robot.status] || currentState.robot.status;
     }
   }
+
+  /** 地图上按下时的落点，松开就清空。 */
+  let pressPoint = null;
 
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
   function walkTo(cellX, cellY, offsetX, offsetY) {
@@ -961,6 +992,7 @@
   function beginRun() {
     started = true;
     els.start.hidden = true;
+    applyInputMode();
     try {
       window.localStorage.setItem("patrol.selection", JSON.stringify(selection));
     } catch (error) {
@@ -995,6 +1027,148 @@
     return Boolean(target.isContentEditable);
   }
 
+  /* ---------------------------------------------------------------- 摇杆 */
+
+  const stick = { on: false, active: false, dx: 0, dy: 0 };
+  let stickPointer = null;
+  let stickLastStep = 0;
+
+  /** 摇杆开着就藏起方向键，换成摇杆面板；提示文案也跟着换。 */
+  function applyInputMode() {
+    if (els.dpad) els.dpad.hidden = stick.on;
+    if (els.stickWrap) els.stickWrap.hidden = !(stick.on && started);
+    if (els.keysHint) {
+      els.keysHint.innerHTML = stick.on
+        ? "摇杆已开启，键盘移动暂停用；关掉摇杆就能继续用 WASD"
+        : '也可以按住键盘 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动';
+    }
+  }
+
+  function setStick(on) {
+    stick.on = Boolean(on);
+    if (els.stickToggle) {
+      els.stickToggle.setAttribute("aria-checked", stick.on ? "true" : "false");
+    }
+    releaseStick();
+    applyInputMode();
+    try {
+      window.localStorage.setItem("patrol.stick", stick.on ? "1" : "0");
+    } catch (error) {
+      /* 隐私模式下写不了，忽略 */
+    }
+  }
+
+  function restoreStick() {
+    let saved = "0";
+    try {
+      saved = window.localStorage.getItem("patrol.stick") || "0";
+    } catch (error) {
+      saved = "0";
+    }
+    setStick(saved === "1");
+  }
+
+  function resetStickKnob() {
+    if (els.stickKnob) els.stickKnob.style.transform = "";
+    if (els.stickBase) els.stickBase.classList.remove("is-active");
+    stick.active = false;
+    stick.dx = 0;
+    stick.dy = 0;
+  }
+
+  function releaseStick() {
+    if (stickPointer !== null && els.stickBase) {
+      try {
+        els.stickBase.releasePointerCapture(stickPointer);
+      } catch (error) {
+        /* 已经释放过了 */
+      }
+    }
+    stickPointer = null;
+    resetStickKnob();
+  }
+
+  /** 格点模式下摇杆当成「推一下走一格」，用冷却时间挡掉连发。 */
+  function stickStep(dx, dy) {
+    const now = Date.now();
+    if (now - stickLastStep < 420) return;
+    stickLastStep = now;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (Math.abs(dx) > 0.05) move(dx > 0 ? "right" : "left");
+    } else {
+      move(dy > 0 ? "down" : "up");
+    }
+  }
+
+  function trackStick(event) {
+    if (!els.stickBase || stickPointer === null) return;
+    const rect = els.stickBase.getBoundingClientRect();
+    const maxRadius = rect.width * 0.33;
+    let dx = event.clientX - (rect.left + rect.width / 2);
+    let dy = event.clientY - (rect.top + rect.height / 2);
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxRadius) {
+      dx = (dx / dist) * maxRadius;
+      dy = (dy / dist) * maxRadius;
+    }
+    if (els.stickKnob) {
+      els.stickKnob.style.transform = "translate(" + dx.toFixed(1) + "px, " + dy.toFixed(1) + "px)";
+    }
+
+    const magnitude = Math.min(dist / maxRadius, 1);
+    if (magnitude < 0.22) {
+      stick.active = false;
+      return;
+    }
+
+    const len = Math.hypot(dx, dy) || 1;
+    // 拖得越远走得越快：最小留 35% 速度，推到边缘就是全速
+    const speed = 0.35 + 0.65 * Math.min((magnitude - 0.22) / 0.78, 1);
+    stick.active = true;
+    stick.dx = (dx / len) * speed;
+    stick.dy = (dy / len) * speed;
+
+    if (mode === "grid") {
+      stickStep(stick.dx, stick.dy);
+      return;
+    }
+    startLoop();
+  }
+
+  function bindStick() {
+    if (!els.stickBase) return;
+
+    els.stickBase.addEventListener("pointerdown", (event) => {
+      if (!started) return;
+      event.preventDefault();
+      stickPointer = event.pointerId;
+      els.stickBase.classList.add("is-active");
+      try {
+        els.stickBase.setPointerCapture(stickPointer);
+      } catch (error) {
+        /* 抓不住也还能用 pointermove */
+      }
+      trackStick(event);
+    });
+
+    els.stickBase.addEventListener("pointermove", (event) => {
+      if (stickPointer === null || event.pointerId !== stickPointer) return;
+      event.preventDefault();
+      trackStick(event);
+    });
+
+    ["pointerup", "pointercancel", "pointerleave"].forEach((name) => {
+      els.stickBase.addEventListener(name, (event) => {
+        if (stickPointer === null) return;
+        if (typeof event.pointerId === "number" && event.pointerId !== stickPointer) return;
+        releaseStick();
+      });
+    });
+
+    if (els.stickToggle) {
+      els.stickToggle?.addEventListener("click", () => setStick(!stick.on));
+    }
+  }
   const KEY_TO_DIRECTION = {
     ArrowUp: "up",
     ArrowDown: "down",
@@ -1010,7 +1184,53 @@
     D: "right",
   };
 
+  /** 右侧面板收起 / 展开；状态记在 localStorage，刷新后保持。 */
+  function setSide(collapsed) {
+    els.layout.classList.toggle("is-collapsed", collapsed);
+    els.sideToggle.setAttribute("aria-expanded", String(!collapsed));
+    els.sideToggleGlyph.textContent = collapsed ? "‹" : "›";
+    els.sideToggleText.textContent = collapsed ? "展开" : "收起";
+    els.sideToggle.title = collapsed ? "展开右侧面板" : "收起右侧面板";
+    els.sideToggle.setAttribute("aria-label", els.sideToggle.title);
+    try {
+      localStorage.setItem("patrol.side", collapsed ? "collapsed" : "open");
+    } catch (error) {
+      /* 隐私模式下写不进去就算了 */
+    }
+    // 面板宽度变了，地图的格子尺寸要重新算
+    requestAnimationFrame(fitStage);
+    window.setTimeout(fitStage, 300);
+  }
+
+  function restoreSide() {
+    let saved = "";
+    try {
+      saved = localStorage.getItem("patrol.side") || "";
+    } catch (error) {
+      saved = "";
+    }
+    setSide(saved === "collapsed");
+  }
+
   function bindEvents() {
+    // 窗口尺寸变化最先绑，后面任何一处抛错都不会影响地图重排
+    let resizeFrame = 0;
+    const refit = () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => fitStage({ instant: true }));
+    };
+    window.addEventListener("resize", refit);
+
+    // resize 事件偶尔拿到的还是旧布局（尤其是全屏切换），再挂一层观察器兜底
+    if (typeof ResizeObserver === "function" && els.stage) {
+      const observer = new ResizeObserver(refit);
+      observer.observe(els.stage);
+      observer.observe(els.board);
+    }
+    bindStick();
+    els.sideToggle.addEventListener("click", () => {
+      setSide(!els.layout.classList.contains("is-collapsed"));
+    });
     // 方向键：自由模式按住持续走，格点模式点一下走一格
     els.keys.forEach((button) => {
       const direction = button.dataset.direction;
@@ -1041,23 +1261,67 @@
     });
 
     // 点地图：自由模式下走过去
-    els.board.addEventListener("click", (event) => {
-      if (!started || mode !== "free" || !currentState) return;
-      const cell = event.target.closest ? event.target.closest(".cell") : null;
-      if (!cell || !cell.dataset.x) return;
+    // 地图上按住就能走：按下立刻出发，按住拖动时换成指针下面的那个格子
+    const cellUnder = (clientX, clientY) => {
+      const el = document.elementFromPoint(clientX, clientY);
+      return el && el.closest ? el.closest(".cell") : null;
+    };
 
-      const cellX = Number(cell.dataset.x);
-      const cellY = Number(cell.dataset.y);
-      const width = cell.clientWidth || 1;
-      const height = cell.clientHeight || 1;
-      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-      // offsetX/Y 是元素自身坐标，格子被 3D 压扁了也照样可用；缩到中间 76% 免得贴边
-      const offsetX = clamp((event.offsetX || width / 2) / width, 0.12, 0.88);
-      const offsetY = clamp((event.offsetY || height / 2) / height, 0.12, 0.88);
-      walkTo(cellX, cellY, offsetX, offsetY);
+    const pointIn = (cell, clientX, clientY) => {
+      if (!cell || !cell.dataset.x) return null;
+      const rect = cell.getBoundingClientRect();
+      const clamp = (value) => Math.max(0.12, Math.min(0.88, value));
+      return {
+        cell,
+        cellX: Number(cell.dataset.x),
+        cellY: Number(cell.dataset.y),
+        offsetX: clamp(rect.width ? (clientX - rect.left) / rect.width : 0.5),
+        offsetY: clamp(rect.height ? (clientY - rect.top) / rect.height : 0.5),
+      };
+    };
+
+    els.board.addEventListener("pointerdown", (event) => {
+      if (!started || mode !== "free" || !currentState) return;
+      if (event.button > 0) return;
+      const point = pointIn(event.target.closest ? event.target.closest(".cell") : null, event.clientX, event.clientY);
+      if (!point) return;
+      event.preventDefault();
+      pressPoint = point;
+      try {
+        els.board.setPointerCapture(event.pointerId);
+      } catch (error) {
+        /* 没有 pointer capture 也能用，只是拖出地图后会断 */
+      }
+      walkTo(point.cellX, point.cellY, point.offsetX, point.offsetY);
     });
 
-    els.reload.addEventListener("click", () => loadState({ initial: !currentState }));
+    els.board.addEventListener("pointermove", (event) => {
+      if (!pressPoint) return;
+      // 用元素命中判断：被 capture 到 board 上的事件 target 不再是格子
+      const cell = cellUnder(event.clientX, event.clientY);
+      if (!cell || !cell.dataset.x) return;
+      if (cell === pressPoint.cell) return;
+      const point = pointIn(cell, event.clientX, event.clientY);
+      if (!point) return;
+      pressPoint = point;
+      walkTo(point.cellX, point.cellY, point.offsetX, point.offsetY);
+    });
+
+    const endPress = () => {
+      pressPoint = null;
+    };
+    els.board.addEventListener("pointerup", endPress);
+    els.board.addEventListener("pointercancel", endPress);
+    els.reload.addEventListener("click", () => {
+      // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
+      steps = 0;
+      trail = new Set();
+      actor.cell = "";
+      paintTrail();
+      els.factSteps.textContent = "0";
+      els.factVisited.textContent = "0";
+      loadState({ initial: !currentState });
+    });
     els.openScene.addEventListener("click", openSetup);
     els.startGo.addEventListener("click", beginRun);
 
@@ -1072,6 +1336,7 @@
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
       if (!started || isTypingTarget(event.target)) return;
       if (!els.start.hidden) return;
+      if (stick.on) return;
 
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
@@ -1097,12 +1362,6 @@
       heldKeys.clear();
       els.keys.forEach((button) => button.classList.remove("is-held"));
     });
-
-    let resizeFrame = 0;
-    window.addEventListener("resize", () => {
-      window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(fitStage);
-    });
   }
 
   function init() {
@@ -1110,6 +1369,8 @@
     restoreSelection();
     markPicks();
     bindEvents();
+    restoreStick();
+    restoreSide();
     syncControls();
     setMode("free");
     loadState({ initial: true });
