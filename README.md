@@ -1,5 +1,3 @@
-<img width="238" height="30" alt="image" src="https://github.com/user-attachments/assets/98acf5f2-a923-410d-8f6c-5f2a6bdb803f" />
-
 # 基于 Web 的智能巡检机器人二维仿真系统
 
 本项目是 广东海洋大学阳江校区人工智能协会 培训班的结课作品。我们将机器人的巡检场景搬到浏览器中，通过二维地图展示机器人如何移动，以及它的位置、朝向和运行状态如何随操作变化。
