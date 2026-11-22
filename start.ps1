@@ -89,7 +89,7 @@ if ($LASTEXITCODE -ne 0) {
   Push-Location $backend
   try {
     & $venvPython -m pip install --disable-pip-version-check -q --upgrade pip
-    & $venvPython -m pip install --disable-pip-version-check -r requirements-dev.txt
+    & $venvPython -m pip install --disable-pip-version-check -r requirements.txt
     if ($LASTEXITCODE -ne 0) { throw '依赖安装失败' }
   } finally {
     Pop-Location

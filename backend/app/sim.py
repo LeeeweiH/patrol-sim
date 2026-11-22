@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import time
+
+# 移动后 status 保持 moving 的时长（秒）。一次移动本身是瞬时的，
+# 超过这个窗口再读状态就应当回到 idle，否则页面会一直显示「移动中」。
+MOVING_WINDOW_SECONDS = 0.5
+
 # 地图大小：8×8
 GRID_WIDTH = 8
 GRID_HEIGHT = 8
@@ -42,9 +48,18 @@ class Simulation:
         self.y = 0
         self.heading = "up"
         self.status = "idle"
+        self.last_move_at = None
 
     def state(self) -> dict:
         """返回当前完整状态，格式和 API 契约一致。"""
+        # 「刚完成一次移动」只在很短的窗口里成立，超时即视为待命。
+        if (
+            self.status == "moving"
+            and self.last_move_at is not None
+            and time.monotonic() - self.last_move_at > MOVING_WINDOW_SECONDS
+        ):
+            self.status = "idle"
+
         return {
             "grid": {
                 "width": GRID_WIDTH,
@@ -78,5 +93,8 @@ class Simulation:
         # 全部通过后，才修改机器人状态
         self.x, self.y = nx, ny
         self.heading = direction
+        # 一次移动是瞬时完成的：这里只记下时刻，state() 按时间窗把 status 从
+        # moving 自动落回 idle，避免状态位永远停在「移动中」。
         self.status = "moving"
+        self.last_move_at = time.monotonic()
         return self.state()

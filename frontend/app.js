@@ -945,6 +945,7 @@
         "已向" + DIRECTIONS[direction] + "移动一格，当前位置 (" + state.robot.x + ", " + state.robot.y + ")。",
         "success"
       );
+      scheduleSettle();
     } catch (error) {
       const rejected = error.status >= 400 && error.status < 500;
       if (rejected) {
@@ -963,6 +964,25 @@
       busy = false;
       syncControls();
     }
+  }
+
+  // 服务端把「刚完成一次移动」只保持一小段时间，之后自动回到 idle。
+  // 这里在移动结束后悄悄再读一次状态，只刷新面板上的坐标/朝向/状态，不动提示文案。
+  let settleTimer = 0;
+
+  function scheduleSettle() {
+    window.clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(async () => {
+      if (busy || !currentState || mode !== "grid") return;
+      try {
+        const state = validateState(await requestJSON("/api/state"));
+        if (busy) return;
+        currentState = state;
+        updateFacts();
+      } catch (error) {
+        // 只是让状态显示落回「待命」，失败就不动，保留上一次的画面
+      }
+    }, 900);
   }
 
   function describeError(error) {
