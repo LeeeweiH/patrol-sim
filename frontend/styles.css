@@ -1652,3 +1652,56 @@ kbd {
 .patrol-btn--report .patrol-dot {
   background: #1d6f7a;
 }
+
+/* 虚拟传感器：扫过的格子、扫描线、量程圈 */
+.cell--scanned {
+  background-color: rgba(29, 111, 122, 0.09);
+}
+
+.cell--scanned.cell--visited {
+  background-color: rgba(29, 111, 122, 0.16);
+}
+
+.scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.scan.is-on {
+  opacity: 1;
+}
+
+.scan path {
+  fill: none;
+  stroke: rgba(29, 111, 122, 0.34);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+}
+
+.scan circle {
+  fill: rgba(29, 111, 122, 0.05);
+  stroke: rgba(29, 111, 122, 0.32);
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+}
+
+.scan.is-pulse path {
+  animation: scan-pulse 520ms ease-out;
+}
+
+@keyframes scan-pulse {
+  from {
+    stroke: rgba(29, 111, 122, 0.72);
+  }
+  to {
+    stroke: rgba(29, 111, 122, 0.34);
+  }
+}
+
+#sensor-toggle {
+  display: flex;
+  margin-top: 8px;
+}

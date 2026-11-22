@@ -59,6 +59,8 @@
     stickBase: document.getElementById("stick-base"),
     stickKnob: document.getElementById("stick-knob"),
     stickToggle: document.getElementById("stick-toggle"),
+    sensorToggle: document.getElementById("sensor-toggle"),
+    factScanned: document.getElementById("fact-scanned"),
     modeBtns: Array.from(document.querySelectorAll(".mode-btn")),
     openScene: document.getElementById("open-scene"),
     start: document.getElementById("start"),
@@ -1009,6 +1011,136 @@
       });
   }
 
+  /* ------------------------------------------------------------ 虚拟传感器 */
+
+  /** 障碍格集合，传感器步进时直接查表。 */
+  function obstacleSet() {
+    const set = new Set();
+    const grid = currentState && currentState.grid;
+    if (!grid) return set;
+    (grid.obstacles || []).forEach((pair) => {
+      if (Array.isArray(pair) && pair.length >= 2) set.add(pair[0] + "," + pair[1]);
+    });
+    return set;
+  }
+
+  function scanLayerElement() {
+    if (scanLayer && scanLayer.isConnected) return scanLayer;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "scan");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    svg.append(ring, path);
+    els.board.append(svg);
+    scanLayer = svg;
+    return svg;
+  }
+
+  /**
+   * 从机器人所在格向外打一圈射线：碰到障碍或出界就停。
+   * 射线经过的格子记进 scanned，射线端点连成扫描线。
+   */
+  function updateScan() {
+    const metrics = currentState ? gridMetrics() : null;
+    const svg = scanLayerElement();
+
+    if (!currentState || !metrics) {
+      svg.classList.remove("is-on");
+      return;
+    }
+
+    if (els.factScanned) els.factScanned.textContent = String(scanned.size);
+    svg.classList.toggle("is-on", scanOn);
+    if (!scanOn) return;
+
+    const width = currentState.grid.width;
+    const height = currentState.grid.height;
+    const blocked = obstacleSet();
+    const cx = metrics.originX + actor.x * metrics.step;
+    const cy = metrics.originY + actor.y * metrics.step;
+    const radius = SCAN_RANGE * metrics.step;
+
+    svg.setAttribute("viewBox", "0 0 " + els.board.offsetWidth + " " + els.board.offsetHeight);
+    svg.setAttribute("width", String(els.board.offsetWidth));
+    svg.setAttribute("height", String(els.board.offsetHeight));
+
+    const ring = svg.querySelector("circle");
+    ring.setAttribute("cx", String(cx));
+    ring.setAttribute("cy", String(cy));
+    ring.setAttribute("r", String(radius));
+
+    const segs = [];
+    const stepLen = 0.08;
+    scanFresh = false;
+
+    for (let i = 0; i < SCAN_RAYS; i += 1) {
+      const angle = (Math.PI * 2 * i) / SCAN_RAYS;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      let dist = 0;
+      let lastX = cx;
+      let lastY = cy;
+      while (dist < SCAN_RANGE) {
+        dist += stepLen;
+        const px = actor.x + dx * dist;
+        const py = actor.y + dy * dist;
+        if (px < 0 || py < 0 || px > width - 1 || py > height - 1) break;
+        const gx = Math.round(px);
+        const gy = Math.round(py);
+        if (blocked.has(gx + "," + gy)) break;
+        const key = cellKey(gx, gy);
+        if (!scanned.has(key)) {
+          scanned.add(key);
+          scanFresh = true;
+        }
+        lastX = cx + dx * dist * metrics.step;
+        lastY = cy + dy * dist * metrics.step;
+      }
+      segs.push("M" + cx.toFixed(1) + " " + cy.toFixed(1) + "L" + lastX.toFixed(1) + " " + lastY.toFixed(1));
+    }
+
+    svg.querySelector("path").setAttribute("d", segs.join(" "));
+
+    if (scanFresh) {
+      scanned.add(cellKey(Math.round(actor.x), Math.round(actor.y)));
+      if (els.factScanned) els.factScanned.textContent = String(scanned.size);
+      // 重新上色：只改类名，不重建 DOM
+      els.board.querySelectorAll(".cell").forEach((cell) => {
+        const key = cell.dataset.x + "," + cell.dataset.y;
+        cell.classList.toggle("cell--scanned", scanned.has(key));
+      });
+      svg.classList.remove("is-pulse");
+      void svg.offsetWidth;
+      svg.classList.add("is-pulse");
+      window.clearTimeout(scanPulseTimer);
+      scanPulseTimer = window.setTimeout(() => svg.classList.remove("is-pulse"), 560);
+    }
+  }
+
+  /** 传感器开关，记在 localStorage 里。 */
+  function setScan(on) {
+    scanOn = Boolean(on);
+    try {
+      window.localStorage.setItem("patrol.sensor", scanOn ? "1" : "0");
+    } catch (err) {
+      /* 隐私模式下写不进去就算了 */
+    }
+    if (els.sensorToggle) els.sensorToggle.setAttribute("aria-checked", scanOn ? "true" : "false");
+    updateScan();
+  }
+
+  function restoreScan() {
+    let saved = null;
+    try {
+      saved = window.localStorage.getItem("patrol.sensor");
+    } catch (err) {
+      saved = null;
+    }
+    if (saved === "0") scanOn = false;
+    if (els.sensorToggle) els.sensorToggle.setAttribute("aria-checked", scanOn ? "true" : "false");
+  }
+
   /* ---------------------------------------------------------------- 渲染 */
 
   function makeAxisCell(text, className) {
@@ -1072,6 +1204,10 @@
       label = "第 " + y + " 行第 " + x + " 列，可通行，已走过";
     }
 
+    if (scanOn && scanned.has(cellKey(x, y))) {
+      cell.classList.add("cell--scanned");
+    }
+
     // 入口（左上）与出口（右下）：只是标记，不是障碍，谁都能踩上去
     const gate = gateAt(state, x, y);
     if (gate) {
@@ -1091,6 +1227,13 @@
   function renderState(state, options) {
     const opts = options || {};
     const { width, height } = state.grid;
+
+    // 换图（尺寸变了）就把扫描记录清掉，不然会留着上一张图的格子
+    const dims = width + "x" + height;
+    if (dims !== lastGridDims) {
+      lastGridDims = dims;
+      scanned = new Set();
+    }
 
     els.board.style.setProperty("--columns", String(width));
     els.board.style.setProperty("--rows", String(height));
@@ -1124,6 +1267,7 @@
     fitStage();
     applyActorTransform();
     applyActorLook();
+    updateScan();
 
     els.placeholder.hidden = true;
     els.mapMeta.textContent = mapMeta(state);
@@ -1555,10 +1699,25 @@
       });
     });
 
+    if (els.sensorToggle) {
+      els.sensorToggle.addEventListener("click", () => setScan(!scanOn));
+    }
+
     if (els.stickToggle) {
       els.stickToggle?.addEventListener("click", () => setStick(!stick.on));
     }
   }
+  /* --------------------------------------------------------- 虚拟传感器 */
+
+  const SCAN_RANGE = 2.6; // 量程，单位「格」
+  const SCAN_RAYS = 56; // 射线数，够密就行，太多会拖帧
+  let scanned = new Set(); // 本会话扫到过的格子（跨地图切换时清空）
+  let scanOn = true;
+  let scanLayer = null;
+  let scanPulseTimer = 0;
+  let scanFresh = false;
+  let lastGridDims = "";
+
   const KEY_TO_DIRECTION = {
     ArrowUp: "up",
     ArrowDown: "down",
@@ -1772,6 +1931,7 @@
     bindEvents();
     restoreStick();
     restoreSide();
+    restoreScan();
     syncControls();
     setMode("free");
     loadState({ initial: true });

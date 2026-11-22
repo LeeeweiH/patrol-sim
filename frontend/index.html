@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=12" />
+    <link rel="stylesheet" href="styles.css?v=13" />
   </head>
   <body>
     <header class="topbar">
@@ -96,6 +96,7 @@
         <p class="trail" id="trail">
           <span class="trail-item"><span class="trail-label">步数</span><b class="trail-value" id="fact-steps">0</b></span>
           <span class="trail-item"><span class="trail-label">经过</span><b class="trail-value" id="fact-visited">0</b><span class="trail-unit">格</span></span>
+          <span class="trail-item"><span class="trail-label">已扫描</span><b class="trail-value" id="fact-scanned">0</b><span class="trail-unit">格</span></span>
         </p>
 
         <div class="mode" role="group" aria-label="控制模式">
@@ -116,6 +117,11 @@
         <button class="switch" id="stick-toggle" type="button" role="switch" aria-checked="false">
           <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
           <span class="switch-text">用网页摇杆移动</span>
+        </button>
+
+        <button class="switch" id="sensor-toggle" type="button" role="switch" aria-checked="true">
+          <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          <span class="switch-text">显示虚拟传感器</span>
         </button>
 
         <div class="dpad" id="dpad" role="group" aria-label="移动方向">
@@ -222,6 +228,6 @@
       <p class="noscript">本页面需要 JavaScript 才能显示地图和发送移动指令，请在浏览器中启用后刷新。</p>
     </noscript>
 
-    <script src="app.js?v=12"></script>
+    <script src="app.js?v=13"></script>
   </body>
 </html>
