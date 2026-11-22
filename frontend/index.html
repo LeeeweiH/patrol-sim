@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=10" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body>
     <header class="topbar">
@@ -163,22 +163,34 @@
         <p class="kicker">SETUP / 出勤准备</p>
         <h2 id="start-title">先选地图，再选机器人</h2>
         <p class="start-sub">
-          现在各只有一个选项，先把手感定下来；后面加地图和机体时，这里会变成一排卡片。
+          先挑一张地图，再挑机体；选完点「开始巡检」进入，左上角「场景」可以随时回来换。
         </p>
 
         <div class="pick-group">
           <h3 class="pick-title">① 巡检地图</h3>
           <div class="pick-row" role="radiogroup" aria-label="地图">
-            <button class="pick is-on" type="button" data-pick="map" data-value="grid8" role="radio" aria-checked="true">
+            <button class="pick is-on" type="button" data-pick="map" data-value="standard" role="radio" aria-checked="true">
               <span class="pick-art pick-art--map" aria-hidden="true">
                 <span></span><span></span><span></span><span></span>
                 <span></span><span></span><span></span><span></span>
-                <span></span><span></span><span></span><span></span>
-                <span></span><span></span><span></span><span></span>
+                <span></span><span class="is-block"></span><span class="is-block"></span><span></span>
+                <span></span><span></span><span></span><span class="is-block"></span>
               </span>
               <span class="pick-body">
                 <span class="pick-name">标准巡检区</span>
                 <span class="pick-meta">8 × 8 · 3 处禁止通行</span>
+              </span>
+              <span class="pick-tick" aria-hidden="true">✓</span>
+            </button>
+            <button class="pick" type="button" data-pick="map" data-value="warehouse" role="radio" aria-checked="false">
+              <span class="pick-art pick-art--map pick-art--wide" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span class="is-block"></span><span class="is-block"></span><span></span><span></span>
+                <span></span><span></span><span class="is-block"></span><span></span><span></span>
+              </span>
+              <span class="pick-body">
+                <span class="pick-name">仓储通道</span>
+                <span class="pick-meta">10 × 8 · 7 处禁止通行</span>
               </span>
               <span class="pick-tick" aria-hidden="true">✓</span>
             </button>
@@ -210,6 +222,6 @@
       <p class="noscript">本页面需要 JavaScript 才能显示地图和发送移动指令，请在浏览器中启用后刷新。</p>
     </noscript>
 
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>

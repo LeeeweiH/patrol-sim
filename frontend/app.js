@@ -79,7 +79,9 @@
   let trail = new Set();
 
   /** 开场选择：现在各只有一个选项，但结构按「以后会加」来写。 */
-  const selection = { map: "grid8", robot: "go2" };
+  const selection = { map: "standard", robot: "go2" };
+  // 后端当前场景 id，切地图时用它判断要不要发 /api/scene
+  let currentSceneId = "standard";
   let started = false;
   let mode = "free"; // free | grid
 
@@ -930,12 +932,19 @@
     actor.path.length = 0;
     setWalking(false);
     setPatrolButton(false);
+    // 中途停下来就没有完整统计了，把上一轮的结果和导出按钮一起收掉
+    patrol.lastSummary = null;
+    if (patrolReportBtn) patrolReportBtn.hidden = true;
     if (reason) setFeedback(reason, "warn");
   }
 
   /** 生成 Markdown 巡检报告并下载，方便贴进结业材料或存档。 */
   function exportPatrolReport() {
-    const sum = patrol.lastSummary || { seconds: "0.0", steps: 0, visited: 0 };
+    if (!patrol.lastSummary) {
+      setFeedback("还没有走完一整轮巡检，暂时没有可导出的统计。", "warn");
+      return;
+    }
+    const sum = patrol.lastSummary;
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const stamp =
@@ -1100,7 +1109,8 @@
   }
 
   function mapMeta(state) {
-    return state.grid.width + " × " + state.grid.height + " 网格 · 禁止通行 " +
+    const name = state.scene && state.scene.name ? state.scene.name + " · " : "";
+    return name + state.grid.width + " × " + state.grid.height + " 网格 · 禁止通行 " +
       state.grid.obstacles.length + " 处";
   }
 
@@ -1323,7 +1333,26 @@
     window.setTimeout(() => els.startGo.focus(), 30);
   }
 
-  function beginRun() {
+  async function beginRun() {
+    // 换地图要先让后端切场景，切失败就别进，免得跑到一半发现地图对不上
+    const wanted = selection.map;
+    if (wanted && wanted !== currentSceneId) {
+      try {
+        const state = await requestJSON("/api/scene", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: wanted }),
+        });
+        validateState(state);
+        currentState = state;
+        currentSceneId = state.scene ? state.scene.id : wanted;
+        renderState(state);
+      } catch (error) {
+        setFeedback("切换地图失败：" + describeError(error), "warn");
+        return;
+      }
+    }
+
     started = true;
     els.start.hidden = true;
     applyInputMode();
@@ -1345,7 +1374,9 @@
   function restoreSelection() {
     try {
       const saved = JSON.parse(window.localStorage.getItem("patrol.selection") || "null");
-      if (saved && saved.map) selection.map = saved.map;
+      // 旧版本存的是 grid8，映射到现在的场景 id
+      if (saved && saved.map === "grid8") selection.map = "standard";
+      else if (saved && saved.map) selection.map = saved.map;
       if (saved && saved.robot) selection.robot = saved.robot;
     } catch (error) {
       /* 忽略损坏的本地数据 */

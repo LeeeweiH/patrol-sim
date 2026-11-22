@@ -1252,9 +1252,13 @@ kbd {
   background: #fff;
 }
 
-.pick-art--map span:nth-child(7) {
+.pick-art--map span.is-block {
   border-color: #a82a22;
   background: #c2521f;
+}
+
+.pick-art--wide {
+  grid-template-columns: repeat(5, 1fr);
 }
 
 .pick-art--robot .sprite {

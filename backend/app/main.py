@@ -16,7 +16,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.sim import Blocked, InvalidDirection, OutOfBounds, Simulation
+from app.sim import (
+    DEFAULT_SCENE,
+    SCENES,
+    Blocked,
+    InvalidDirection,
+    InvalidScene,
+    OutOfBounds,
+    Simulation,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,8 +37,8 @@ SIM = Simulation()
 
 
 def reset_state() -> None:
-    """把机器人放回起点，测试用。"""
-    SIM.reset()
+    """把场景和机器人一起复位，测试用。"""
+    SIM.set_scene(DEFAULT_SCENE)
 
 
 # ---- 运行时配置 --------------------------------------------------------------
@@ -66,6 +74,43 @@ def create_app() -> FastAPI:
     @app.get("/api/state")
     def get_state() -> dict:
         return build_state()
+
+    @app.get("/api/scenes")
+    def list_scenes() -> dict:
+        """可选场景列表，前端开场选择器用。"""
+        return {
+            "current": SIM.scene_id,
+            "scenes": [
+                {
+                    "id": scene_id,
+                    "name": scene["name"],
+                    "width": scene["width"],
+                    "height": scene["height"],
+                    "obstacles": [list(item) for item in sorted(scene["obstacles"])],
+                }
+                for scene_id, scene in SCENES.items()
+            ],
+        }
+
+    @app.post("/api/scene")
+    async def select_scene(request: Request):
+        """切换场景，成功后返回新场景的完整状态。"""
+        try:
+            payload = await request.json()
+        except Exception:
+            return error(400, "invalid_json", "请求体必须是合法的 JSON")
+
+        scene_id = payload.get("id") if isinstance(payload, dict) else None
+        if not isinstance(scene_id, str):
+            return error(400, "invalid_scene", "id 必须是场景标识")
+        try:
+            state = SIM.set_scene(scene_id)
+        except InvalidScene:
+            known = "、".join(SCENES.keys())
+            return error(400, "invalid_scene", f"未知场景，可选：{known}")
+
+        LOGGER.info("scene -> %s", scene_id)
+        return state
 
     @app.post("/api/move")
     async def move(request: Request):
