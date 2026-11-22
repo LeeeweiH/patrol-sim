@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=16" />
+    <link rel="stylesheet" href="styles.css?v=19" />
   </head>
   <body>
     <header class="topbar">
@@ -115,6 +115,8 @@
           <span>导出巡检报告</span>
         </button>
 
+        <button class="btn-ghost btn-ghost--wide" id="reports-open" type="button">查看巡检记录</button>
+
         <button class="switch" id="stick-toggle" type="button" role="switch" aria-checked="false">
           <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
           <span class="switch-text">用网页摇杆移动</span>
@@ -123,6 +125,11 @@
         <button class="switch" id="sensor-toggle" type="button" role="switch" aria-checked="true">
           <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
           <span class="switch-text">显示虚拟传感器</span>
+        </button>
+
+        <button class="switch" id="trace-toggle" type="button" role="switch" aria-checked="true">
+          <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          <span class="switch-text">显示行走轨迹</span>
         </button>
 
         <div class="dpad" id="dpad" role="group" aria-label="移动方向">
@@ -237,6 +244,18 @@
       <p class="noscript">本页面需要 JavaScript 才能显示地图和发送移动指令，请在浏览器中启用后刷新。</p>
     </noscript>
 
-    <script src="app.js?v=16"></script>
+        <div class="sheet" id="reports-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="reports-title">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h2 class="sheet-title" id="reports-title">巡检记录</h2>
+          <button class="sheet-close" id="reports-close" type="button" aria-label="关闭">&#215;</button>
+        </div>
+        <p class="sheet-hint" id="reports-hint">按时间倒序，最多显示最近 20 条。</p>
+        <div class="sheet-body" id="reports-body"></div>
+      </div>
+    </div>
+
+
+  <script src="app.js?v=19"></script>
   </body>
 </html>

@@ -75,6 +75,12 @@
     stickKnob: document.getElementById("stick-knob"),
     stickToggle: document.getElementById("stick-toggle"),
     sensorToggle: document.getElementById("sensor-toggle"),
+    traceToggle: document.getElementById("trace-toggle"),
+    reportsOpen: document.getElementById("reports-open"),
+    reportsSheet: document.getElementById("reports-sheet"),
+    reportsClose: document.getElementById("reports-close"),
+    reportsBody: document.getElementById("reports-body"),
+    reportsHint: document.getElementById("reports-hint"),
     factScanned: document.getElementById("fact-scanned"),
     modeBtns: Array.from(document.querySelectorAll(".mode-btn")),
     openScene: document.getElementById("open-scene"),
@@ -95,6 +101,10 @@
    */
   let steps = 0;
   let trail = new Set();
+  let trackPoints = [];
+  let traceOn = true;
+  let traceLayer = null;
+  let tracePath = null;
 
   /** 开场选择：现在各只有一个选项，但结构按「以后会加」来写。 */
   const selection = { map: "standard", robot: "go2" };
@@ -741,6 +751,7 @@
       applyActorTransform();
       applyActorLook();
       recordTrail();
+      pushTrackPoint(actor.x, actor.y);
       updateFacts();
     }
   }
@@ -782,6 +793,75 @@
       const cell = cellAt(Number(parts[0]), Number(parts[1]));
       if (cell) cell.classList.add("cell--visited");
     });
+  }
+
+  /** 轨迹采样点：同一处不重复记，太长就丢最早的点。 */
+  function pushTrackPoint(x, y) {
+    const last = trackPoints[trackPoints.length - 1];
+    if (last && Math.abs(last.x - x) < 0.02 && Math.abs(last.y - y) < 0.02) return;
+    trackPoints.push({ x: x, y: y });
+    if (trackPoints.length > 2400) trackPoints.shift();
+    paintTrack();
+  }
+
+  /** 轨迹线画在地图坐标系里，跟平面一起倾斜，所以看起来是贴着地面的折线。 */
+  function traceLayerElement() {
+    if (traceLayer && traceLayer.isConnected) return traceLayer;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "trace");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.append(path);
+    els.board.append(svg);
+    traceLayer = svg;
+    tracePath = path;
+    return svg;
+  }
+
+  function paintTrack() {
+    if (!els.board) return;
+    const svg = traceLayerElement();
+    const metrics = currentState ? gridMetrics() : null;
+    if (!metrics) return;
+    svg.setAttribute("viewBox", "0 0 " + els.board.offsetWidth + " " + els.board.offsetHeight);
+    const enough = trackPoints.length > 1;
+    svg.classList.toggle("is-on", traceOn && enough);
+    if (!traceOn || !enough) {
+      tracePath.setAttribute("d", "");
+      return;
+    }
+    let d = "";
+    for (let i = 0; i < trackPoints.length; i += 1) {
+      const pt = trackPoints[i];
+      const px = metrics.originX + pt.x * metrics.step;
+      const py = metrics.originY + pt.y * metrics.step;
+      d += (i === 0 ? "M" : "L") + px.toFixed(1) + " " + py.toFixed(1);
+    }
+    tracePath.setAttribute("d", d);
+  }
+
+  function setTrace(on) {
+    traceOn = Boolean(on);
+    try {
+      window.localStorage.setItem("patrol.trace", traceOn ? "1" : "0");
+    } catch (err) {
+      /* 隐私模式写不了 localStorage，忽略 */
+    }
+    if (els.traceToggle) {
+      els.traceToggle.setAttribute("aria-checked", traceOn ? "true" : "false");
+      els.traceToggle.classList.toggle("is-on", traceOn);
+    }
+    paintTrack();
+  }
+
+  function restoreTrace() {
+    let saved = null;
+    try {
+      saved = window.localStorage.getItem("patrol.trace");
+    } catch (err) {
+      saved = null;
+    }
+    setTrace(saved === null ? true : saved === "1");
   }
 
   function cellAt(x, y) {
@@ -988,6 +1068,38 @@
   }
 
   /** 生成 Markdown 巡检报告并下载，方便贴进结业材料或存档。 */
+  /** 把轨迹整理成「字符画地图 + 坐标序列」，写进导出的 Markdown。 */
+  function describeRoute(grid) {
+    const width = grid.width || 0;
+    const height = grid.height || 0;
+    const blocked = new Set((grid.obstacles || []).map((pair) => pair[0] + "," + pair[1]));
+    const cells = [];
+    const seen = new Set();
+    trackPoints.forEach((pt) => {
+      const key = Math.round(pt.x) + "," + Math.round(pt.y);
+      if (seen.has(key)) return;
+      seen.add(key);
+      cells.push(key);
+    });
+    const rx = currentState ? currentState.robot.x : -1;
+    const ry = currentState ? currentState.robot.y : -1;
+    const ascii = [];
+    for (let y = 0; y < height; y += 1) {
+      let row = "";
+      for (let x = 0; x < width; x += 1) {
+        const key = x + "," + y;
+        let ch = ".";
+        if (blocked.has(key)) ch = "#";
+        if (seen.has(key)) ch = "o";
+        if (x === rx && y === ry) ch = "@";
+        row += ch;
+      }
+      ascii.push(row);
+    }
+    const line = cells.map((key) => "(" + key + ")").join(" → ") || "（本轮没有移动）";
+    return { cells: cells, ascii: ascii, line: line };
+  }
+
   function exportPatrolReport() {
     if (!patrol.lastSummary) {
       setFeedback("还没有走完一整轮巡检，暂时没有可导出的统计。", "warn");
@@ -1003,6 +1115,7 @@
     const pos = currentState
       ? "(" + currentState.robot.x.toFixed(1) + ", " + currentState.robot.y.toFixed(1) + ")"
       : "未知";
+    const route = describeRoute(grid);
     const lines = [
       "# 巡检报告",
       "",
@@ -1014,6 +1127,16 @@
       "- 移动步数：" + sum.steps + " 步",
       "- 新覆盖格子：" + sum.visited + " 格",
       "- 结束位置：" + pos,
+      "",
+      "## 本轮路线",
+      "",
+      ...route.ascii.map((row) => "    " + row),
+      "",
+      "    # 禁止通行   o 走过   . 可通行   @ 当前位置",
+      "",
+      "共 " + trackPoints.length + " 个采样点，按格子去重后 " + route.cells.length + " 格：",
+      "",
+      "    " + route.line,
       "",
       "## 路线策略",
       "",
@@ -1050,6 +1173,88 @@
       .catch(() => {
         setFeedback("巡检报告已导出（服务端存档失败，可稍后重试）。", "warn");
       });
+  }
+
+  /* ------------------------------------------------------------ 巡检记录 */
+
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    const text = String(iso).replace("T", " ");
+    return text.length >= 16 ? text.slice(0, 16) : text;
+  }
+
+  function renderReports(list, limit) {
+    if (!els.reportsBody) return;
+    const wrap = els.reportsBody;
+    wrap.textContent = "";
+    if (!list.length) {
+      const empty = document.createElement("p");
+      empty.className = "sheet-empty";
+      empty.textContent = "还没有记录。跑完一轮自动巡检并导出一次报告，这里就会出现一条。";
+      wrap.append(empty);
+      return;
+    }
+    const table = document.createElement("table");
+    table.className = "rep-table";
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["#", "时间", "地图", "点位", "用时", "步数", "覆盖"].forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.append(th);
+    });
+    head.append(headRow);
+    const body = document.createElement("tbody");
+    list.forEach((item) => {
+      const tr = document.createElement("tr");
+      const cells = [
+        String(item.id),
+        fmtTime(item.received_at),
+        item.scene_name || item.scene || "—",
+        item.points + " 个",
+        item.seconds + " 秒",
+        item.steps + " 步",
+        item.visited + " 格",
+      ];
+      cells.forEach((text, index) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (index === 0) td.className = "rep-id";
+        tr.append(td);
+      });
+      body.append(tr);
+    });
+    table.append(head, body);
+    wrap.append(table);
+    if (els.reportsHint) {
+      els.reportsHint.textContent = "共 " + list.length + " 条（最多显示最近 " + limit + " 条）。";
+    }
+  }
+
+  function openReports() {
+    if (!els.reportsSheet) return;
+    els.reportsSheet.hidden = false;
+    if (els.reportsBody) {
+      els.reportsBody.textContent = "正在读取…";
+    }
+    if (els.reportsClose) els.reportsClose.focus();
+    requestJSON("/api/reports?limit=20")
+      .then((data) => {
+        renderReports(data.reports || [], data.limit || 20);
+      })
+      .catch((err) => {
+        if (!els.reportsBody) return;
+        els.reportsBody.textContent = "";
+        const tip = document.createElement("p");
+        tip.className = "sheet-empty";
+        tip.textContent = "读取失败：" + err.message + "。后端可能没启动，稍后再试。";
+        els.reportsBody.append(tip);
+      });
+  }
+
+  function closeReports() {
+    if (els.reportsSheet) els.reportsSheet.hidden = true;
+    if (els.reportsOpen) els.reportsOpen.focus();
   }
 
   /* ------------------------------------------------------------ 虚拟传感器 */
@@ -1222,10 +1427,12 @@
       Math.abs(previous.x - state.robot.x) + Math.abs(previous.y - state.robot.y) > 1;
 
     if (!previous || jumped || trail.size === 0) {
+      trackPoints = [];
       trail = new Set();
       steps = 0;
     }
     trail.add(cellKey(state.robot.x, state.robot.y));
+    pushTrackPoint(state.robot.x, state.robot.y);
     return jumped;
   }
 
@@ -1329,6 +1536,9 @@
     applyActorTransform();
     applyActorLook();
     updateScan();
+    // 格点模式不经过 rAF，这里补一次采样，轨迹线才不会断
+    pushTrackPoint(state.robot.x, state.robot.y);
+    paintTrack();
 
     els.placeholder.hidden = true;
     els.mapMeta.textContent = mapMeta(state);
@@ -1596,6 +1806,7 @@
     }
     setFeedback("已进入巡检，点地图任意位置或按住方向键开始。", "");
     // 开场选完机体才进入：这里必须按当前选择重画一次，立牌才会换成选中的那台
+    trackPoints = [];
     if (currentState) renderState(currentState);
     applyActorTransform();
     applyActorLook();
@@ -1762,6 +1973,19 @@
       });
     });
 
+    if (els.traceToggle) {
+      els.traceToggle.addEventListener("click", () => setTrace(!traceOn));
+    }
+    if (els.reportsOpen) els.reportsOpen.addEventListener("click", openReports);
+    if (els.reportsClose) els.reportsClose.addEventListener("click", closeReports);
+    if (els.reportsSheet) {
+      els.reportsSheet.addEventListener("click", (event) => {
+        if (event.target === els.reportsSheet) closeReports();
+      });
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && els.reportsSheet && !els.reportsSheet.hidden) closeReports();
+    });
     if (els.sensorToggle) {
       els.sensorToggle.addEventListener("click", () => setScan(!scanOn));
     }
@@ -1832,6 +2056,7 @@
       resizeFrame = window.requestAnimationFrame(() => fitStage({ instant: true }));
     };
     window.addEventListener("resize", refit);
+    window.addEventListener("resize", () => paintTrack());
 
     // resize 事件偶尔拿到的还是旧布局（尤其是全屏切换），再挂一层观察器兜底
     if (typeof ResizeObserver === "function" && els.stage) {
@@ -1939,6 +2164,8 @@
       // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
       steps = 0;
       trail = new Set();
+      trackPoints = [];
+      paintTrack();
       actor.cell = "";
       paintTrail();
       els.factSteps.textContent = "0";
@@ -1995,6 +2222,7 @@
     restoreStick();
     restoreSide();
     restoreScan();
+    restoreTrace();
     syncControls();
     setMode("free");
     loadState({ initial: true });
