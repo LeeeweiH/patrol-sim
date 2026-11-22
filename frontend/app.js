@@ -1314,88 +1314,116 @@
     const height = currentState.grid.height;
     const blocked = obstacleSet();
 
-    // 传感器只画在地图范围内：把扫描层裁剪到网格边界，别糊到面板留白上
+    // 视图框用「内边距盒」尺寸，和 inset:0 的绝对定位一致，避免 1~2px 的缩放错位
+    const boxW = els.board.clientWidth;
+    const boxH = els.board.clientHeight;
+    svg.setAttribute("viewBox", "0 0 " + boxW + " " + boxH);
+    svg.setAttribute("width", String(boxW));
+    svg.setAttribute("height", String(boxH));
+
+    // 传感器只画在地图范围内：网格的左右边界取「第一格左沿 / 最后一格右沿」
+    const pad = metrics.cellPx / 2;
     const clipRect = svg.querySelector("#scan-clip rect");
     if (clipRect) {
-      const pad = metrics.step / 2;
       clipRect.setAttribute("x", String(metrics.originX - pad));
       clipRect.setAttribute("y", String(metrics.originY - pad));
       clipRect.setAttribute("width", String((width - 1) * metrics.step + metrics.cellPx));
       clipRect.setAttribute("height", String((height - 1) * metrics.step + metrics.cellPx));
     }
+
     const cx = metrics.originX + actor.x * metrics.step;
     const cy = metrics.originY + actor.y * metrics.step;
     const radius = SCAN_RANGE * metrics.step;
-
-    svg.setAttribute("viewBox", "0 0 " + els.board.offsetWidth + " " + els.board.offsetHeight);
-    svg.setAttribute("width", String(els.board.offsetWidth));
-    svg.setAttribute("height", String(els.board.offsetHeight));
 
     const ring = svg.querySelector("circle");
     ring.setAttribute("cx", String(cx));
     ring.setAttribute("cy", String(cy));
     ring.setAttribute("r", String(radius));
 
-    const segs = [];
-    const stepLen = 0.08;
+    // 1) 逐格判定「看得到」：先算格心距离，再沿视线做亚格采样判断有没有被牌子挡住。
+    //    这样做比「沿射线累加格子」稳定：不会因为射线数量/步长出现漏格或锯齿。
     const visible = new Set();
     const inRange = new Set();
-    scanFresh = false;
+    const span = Math.ceil(SCAN_RANGE) + 1;
+    const baseX = Math.round(actor.x);
+    const baseY = Math.round(actor.y);
 
+    for (let gy = baseY - span; gy <= baseY + span; gy += 1) {
+      for (let gx = baseX - span; gx <= baseX + span; gx += 1) {
+        if (gx < 0 || gy < 0 || gx >= width || gy >= height) continue;
+        const key = gx + "," + gy;
+        if (blocked.has(key)) continue; // 牌子本身不算可走的格子
+        const dist = Math.hypot(gx - actor.x, gy - actor.y);
+        if (dist > SCAN_RANGE) continue;
+        inRange.add(key);
+
+        // 从机器人往格心采样，任何一步落在牌子上就看不见
+        let occluded = false;
+        const samples = Math.max(2, Math.ceil(dist / 0.1));
+        for (let s = 1; s <= samples; s += 1) {
+          const t = s / samples;
+          const sx = actor.x + (gx - actor.x) * t;
+          const sy = actor.y + (gy - actor.y) * t;
+          const bx = Math.round(sx);
+          const by = Math.round(sy);
+          if (bx === gx && by === gy) break; // 已经走到目标格，不再往后看
+          if (blocked.has(bx + "," + by)) {
+            occluded = true;
+            break;
+          }
+        }
+        if (!occluded) visible.add(key);
+      }
+    }
+
+    scanFresh = false;
+    visible.forEach((key) => {
+      if (!scanned.has(key)) {
+        scanned.add(key);
+        scanFresh = true;
+      }
+    });
+    // 机器人脚下那一格永远算扫到
+    const here = cellKey(Math.round(actor.x), Math.round(actor.y));
+    if (!scanned.has(here)) {
+      scanned.add(here);
+      scanFresh = true;
+    }
+
+    // 2) 画射线：只负责「看起来像雷达」，按角度前进，撞牌子或出界就停
+    const segs = [];
+    const stepLen = 0.08;
+    const maxR = Math.min(SCAN_RANGE, Math.max(width, height));
     for (let i = 0; i < SCAN_RAYS; i += 1) {
       const angle = (Math.PI * 2 * i) / SCAN_RAYS;
       const dx = Math.cos(angle);
       const dy = Math.sin(angle);
       let dist = 0;
-      let lastX = cx;
-      let lastY = cy;
-      while (dist < SCAN_RANGE) {
+      const limit = maxR + 0.5;
+      while (dist < limit) {
         dist += stepLen;
         const px = actor.x + dx * dist;
         const py = actor.y + dy * dist;
-        if (px < 0 || py < 0 || px > width - 1 || py > height - 1) break;
-        const gx = Math.round(px);
-        const gy = Math.round(py);
-        if (blocked.has(gx + "," + gy)) break;
-        const key = cellKey(gx, gy);
-        visible.add(key);
-        if (!scanned.has(key)) {
-          scanned.add(key);
-          scanFresh = true;
-        }
-        lastX = cx + dx * dist * metrics.step;
-        lastY = cy + dy * dist * metrics.step;
+        if (px < -0.5 || py < -0.5 || px > width - 0.5 || py > height - 0.5) break;
+        if (blocked.has(Math.round(px) + "," + Math.round(py))) break;
       }
-      segs.push("M" + cx.toFixed(1) + " " + cy.toFixed(1) + "L" + lastX.toFixed(1) + " " + lastY.toFixed(1));
+      const ex = cx + dx * dist * metrics.step;
+      const ey = cy + dy * dist * metrics.step;
+      segs.push("M" + cx.toFixed(1) + " " + cy.toFixed(1) + "L" + ex.toFixed(1) + " " + ey.toFixed(1));
     }
-
-    // 量程内的所有空格子：没被任何射线照到的就是被挡住的「盲区」
-    const reach = Math.ceil(SCAN_RANGE) + 1;
-    for (let dy = -reach; dy <= reach; dy += 1) {
-      for (let dx = -reach; dx <= reach; dx += 1) {
-        const gx = Math.round(actor.x) + dx;
-        const gy = Math.round(actor.y) + dy;
-        if (gx < 0 || gy < 0 || gx >= width || gy >= height) continue;
-        if (blocked.has(gx + "," + gy)) continue;
-        if (Math.hypot(gx - actor.x, gy - actor.y) > SCAN_RANGE) continue;
-        inRange.add(cellKey(gx, gy));
-      }
-    }
-
     svg.querySelector("path").setAttribute("d", segs.join(" "));
 
+    // 3) 每次都重刷类名：盲区随位置变化，不能等「有新格子」才更新，
+    //    否则站着不动或走进旧区域时，斜纹会停在上一帧的位置。
+    els.board.querySelectorAll(".cell").forEach((cell) => {
+      const key = cell.dataset.x + "," + cell.dataset.y;
+      cell.classList.toggle("cell--scanned", scanned.has(key));
+      cell.classList.toggle("cell--unseen", inRange.has(key) && !visible.has(key));
+    });
+
+    if (els.factScanned) els.factScanned.textContent = String(scanned.size);
+
     if (scanFresh) {
-      scanned.add(cellKey(Math.round(actor.x), Math.round(actor.y)));
-      if (els.factScanned) els.factScanned.textContent = String(scanned.size);
-      // 重新上色：只改类名，不重建 DOM
-      els.board.querySelectorAll(".cell").forEach((cell) => {
-        const key = cell.dataset.x + "," + cell.dataset.y;
-        cell.classList.toggle("cell--scanned", scanned.has(key));
-        cell.classList.toggle(
-          "cell--unseen",
-          scanOn && inRange.has(key) && !visible.has(key) && !cell.classList.contains("cell--block")
-        );
-      });
       svg.classList.remove("is-pulse");
       void svg.offsetWidth;
       svg.classList.add("is-pulse");
@@ -1404,7 +1432,7 @@
     }
   }
 
-  /** 传感器开关，记在 localStorage 里。 */
+
   function setScan(on) {
     scanOn = Boolean(on);
     try {
