@@ -706,6 +706,19 @@
     }
   }
 
+  // 自由模式下角色每帧都在动，但 updateScan/paintTrack 原本只在 renderState 里跑，
+  // 于是雷达扇形和轨迹会「停在上一帧」。这里按 90ms 或换格时补刷一次，既跟手又不掉帧。
+  let lastScanPaint = 0;
+  let lastScanCell = "";
+  function refreshOverlays(timestamp, force) {
+    const cell = Math.round(actor.x) + "," + Math.round(actor.y);
+    if (!force && cell === lastScanCell && timestamp - lastScanPaint < 90) return;
+    lastScanCell = cell;
+    lastScanPaint = timestamp || 0;
+    updateScan();
+    paintTrack();
+  }
+
   function frame(timestamp) {
     rafId = window.requestAnimationFrame(frame);
     const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.06) : 0;
@@ -735,6 +748,7 @@
       applyActorTransform();
       applyActorLook();
       updateFacts();
+      refreshOverlays(timestamp, true);
       const arrived = "(" + actor.x.toFixed(1) + ", " + actor.y.toFixed(1) + ")";
       if (patrol.on) {
         setFeedback("巡检中 " + patrol.done + "/" + patrol.total + "：已到 " + arrived, "success");
@@ -753,6 +767,7 @@
       recordTrail();
       pushTrackPoint(actor.x, actor.y);
       updateFacts();
+      refreshOverlays(timestamp);
     }
   }
 
@@ -798,6 +813,9 @@
   /** 轨迹采样点：同一处不重复记，太长就丢最早的点。 */
   function pushTrackPoint(x, y) {
     const last = trackPoints[trackPoints.length - 1];
+    // 切地图 / 重新读取 / 任何瞬移都会让相邻两点隔很远，直接连起来就是一条横跨全图的假线，
+    // 所以超过 3 格就当作新的一段轨迹重新开始。
+    if (last && Math.hypot(x - last.x, y - last.y) > 3) trackPoints = [];
     if (last && Math.abs(last.x - x) < 0.02 && Math.abs(last.y - y) < 0.02) return;
     trackPoints.push({ x: x, y: y });
     if (trackPoints.length > 2400) trackPoints.shift();
@@ -823,7 +841,7 @@
     const svg = traceLayerElement();
     const metrics = currentState ? gridMetrics() : null;
     if (!metrics) return;
-    svg.setAttribute("viewBox", "0 0 " + els.board.offsetWidth + " " + els.board.offsetHeight);
+    svg.setAttribute("viewBox", "0 0 " + els.board.clientWidth + " " + els.board.clientHeight);
     const enough = trackPoints.length > 1;
     svg.classList.toggle("is-on", traceOn && enough);
     if (!traceOn || !enough) {
