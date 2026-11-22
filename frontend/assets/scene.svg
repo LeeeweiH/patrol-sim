@@ -136,4 +136,22 @@
       <polyline class="crate-band" points="68,57 68,77" fill="none" />
     </g>
   </svg>
+  <!-- 入口 / 出口：地图起点与终点的可通行地标，颜色由 currentColor 决定 -->
+  <svg id="gate-in" viewBox="0 0 100 120">
+    <ellipse class="gate-glow" cx="50" cy="108" rx="34" ry="7"/>
+    <rect class="gate-leg" x="22" y="86" width="9" height="22" rx="3"/>
+    <rect class="gate-leg" x="69" y="86" width="9" height="22" rx="3"/>
+    <rect class="gate-frame" x="8" y="10" width="84" height="84" rx="14"/>
+    <rect class="gate-inner" x="18" y="20" width="64" height="64" rx="9"/>
+    <path class="gate-arrow" d="M50 36 L72 62 H60 V82 H40 V62 H28 Z"/>
+  </svg>
+
+  <svg id="gate-out" viewBox="0 0 100 120">
+    <ellipse class="gate-glow" cx="50" cy="108" rx="34" ry="7"/>
+    <rect class="gate-leg" x="22" y="86" width="9" height="22" rx="3"/>
+    <rect class="gate-leg" x="69" y="86" width="9" height="22" rx="3"/>
+    <rect class="gate-frame" x="8" y="10" width="84" height="84" rx="14"/>
+    <rect class="gate-inner" x="18" y="20" width="64" height="64" rx="9"/>
+    <path class="gate-arrow" d="M50 84 L28 58 H40 V38 H60 V58 H72 Z"/>
+  </svg>
 </svg>
