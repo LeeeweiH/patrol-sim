@@ -13,15 +13,24 @@
 
 ## 本地启动流程
 
-**省事的方法：** 仓库根目录有 `start.ps1` / `start.bat`，双击 `start.bat`（或在该目录执行 `.\start.ps1`）它会自动建 `backend/.venv`、装依赖、挑一个没被占用的端口起服务，再打开浏览器。想换端口用 `.\start.ps1 -Port 9000`；想让同 Wi-Fi 的同学也能访问，用 `.\start.ps1 -Lan`，脚本会打印局域网地址。
+**省事的方法：** 仓库根目录有 `start.sh`（Linux / macOS / WSL）和 `start.ps1` / `start.bat`（Windows）。它会自动建 `backend/.venv`、装依赖、挑一个没被占用的端口起服务，再打开浏览器。
 
-手动启动的完整步骤：
+```bash
+./start.sh                # 默认 8080
+./start.sh --port 9000    # 换端口
+./start.sh --lan          # 让同一局域网的设备也能访问，脚本会打印访问地址
+./start.sh --help         # 看全部参数
+```
+
+Windows 下双击 `start.bat`，或在 PowerShell 里执行 `.\start.ps1 -Port 9000`（局域网用 `.\start.ps1 -Lan`）。
+
+手动启动的完整步骤（Linux / macOS / WSL）：
 
 1. **进入目录。** 从仓库根目录进入 `backend/`。
-2. **建虚拟环境。** `python -m venv .venv`，然后 `.\.venv\Scripts\Activate.ps1`（被策略拦住就改用 `.\.venv\Scripts\activate.bat`）。
+2. **建虚拟环境。** `python3 -m venv .venv`，然后 `source .venv/bin/activate`（Windows 用 `python -m venv .venv` 加 `.\.venv\Scripts\Activate.ps1`）。
 3. **安装依赖。** 执行 `pip install -r requirements.txt`。
 4. **配置后端地址。** 前端不含硬编码地址，页面和接口同源；`app.js` 内所有请求都写成相对路径 `/api/state`、`/api/move`，由浏览器按当前页面地址自动补全，因此无需配置。
-5. **启动后端（前端不单独启动）。** 在 `backend/` 下执行 `python -m uvicorn app.main:app --reload`，然后在浏览器打开 `http://localhost:8080/`。`app/main.py` 已经把仓库的 `frontend/` 目录挂载到根路径，所以不需要另起静态服务器。
+5. **启动后端（前端不单独启动）。** 在 `backend/` 下执行 `python3 -m uvicorn app.main:app --reload`（Windows 用 `python`），然后在浏览器打开 `http://localhost:8080/`。`app/main.py` 已经把仓库的 `frontend/` 目录挂载到根路径，所以不需要另起静态服务器。
 6. **验证页面和联调。** 页面上会先弹出开场选择（地图 + 机器人），点「开始巡检」进入。之后应看到 8×8 网格、机器狗站在 `(0, 0)`。在开发者工具的网络面板里能看到 `GET /api/state` 与 `POST /api/move`，预期状态码均为 `200`；越界或撞障碍时 `POST /api/move` 返回 `409`，页面给出中文提示且位置不变。
 
 ## 文件结构

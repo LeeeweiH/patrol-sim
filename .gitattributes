@@ -1,0 +1,20 @@
+# 统一换行符：仓库里一律存 LF，Windows 上由 git 自己转成 CRLF 检出
+* text=auto eol=lf
+
+# 明确按二进制处理，别再被当成文本改换行
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# 脚本类：Linux 下要能直接执行，绝不能带 CRLF
+*.sh text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
