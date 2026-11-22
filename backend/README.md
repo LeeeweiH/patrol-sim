@@ -3,8 +3,8 @@
 ## 功能与环境
 
 - 已实现的接口和仿真功能（如地图读取、机器人移动、状态查询）为 `三个接口：GET /api/health 健康检查、GET /api/state 查询地图与机器人状态、POST /api/move 手动移动；仿真为 8×8 二维网格、3 处固定障碍，越界与撞障碍都会被拦截`。
-- 后端使用 `Python 3.12+ + FastAPI + Uvicorn` 开发，仿真逻辑使用 `纯python` 实现（CI 与组长环境用 `Python 3.14`，本机 3.12 已验证通过）。
-- 本地运行需要安装 `Python和pip`，所需版本为 `Python 3.12 及以上`。
+- 后端使用 `Python 3.10+ + FastAPI + Uvicorn` 开发，仿真逻辑使用 `纯 Python` 实现（CI 在 `Python 3.14` 上验证，WSL 的 3.10 与 Windows 的 3.12 均实测通过）。
+- 本地运行需要安装 `Python 和 pip`，最低版本 `Python 3.10`。
 
 ## 本地启动流程
 

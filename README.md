@@ -1,21 +1,30 @@
-<img width="238" height="30" alt="image" src="https://github.com/user-attachments/assets/98acf5f2-a923-410d-8f6c-5f2a6bdb803f" /># 基于 Web 的智能巡检机器人二维仿真系统
+<img width="238" height="30" alt="image" src="https://github.com/user-attachments/assets/98acf5f2-a923-410d-8f6c-5f2a6bdb803f" />
+
+# 基于 Web 的智能巡检机器人二维仿真系统
 
 本项目是 广东海洋大学阳江校区人工智能协会 培训班的结课作品。我们将机器人的巡检场景搬到浏览器中，通过二维地图展示机器人如何移动，以及它的位置、朝向和运行状态如何随操作变化。
 
 ## 在线演示
 
-可操作的在线演示部署在 `XXX`。打开演示页面后，可以查看二维地图、手动控制机器人，并观察操作后的状态变化。
+本项目未部署到公网，在本地跑起来即可演示：
 
-本项目还展示了 `XXX`。
+```bash
+./start.sh      # Linux / macOS / WSL
+start.bat       # Windows
+```
+
+启动后在浏览器打开 <http://localhost:8080/>（端口被占用时脚本会自动顺延并打印实际地址）。页面先弹开场选择，选好地图与机器人点「开始巡检」进入：可以用方向键、WASD、网页摇杆或直接点地图移动，右侧面板实时显示坐标、朝向与运行状态。
+
+演示的是二维仿真，不是真机；地图与障碍物来自后端接口，页面不做本地预测。
 
 ## 技术选型
 
 - 前端使用 `原生 HTML + CSS + JavaScript（无框架）` 开发页面和操作界面。
-- 后端使用 `Python 3.14 + FastAPI + Uvicorn` 提供 API。
+- 后端使用 `Python 3.10+ + FastAPI + Uvicorn` 提供 API（CI 在 3.14 上验证）。
 - 二维地图和机器人使用 `DOM 元素 + CSS Grid` 绘制。
 - 仿真逻辑使用 `纯 Python` 实现，代码位于 `backend/app/sim.py`，不依赖第三方仿真库。
 - CI 使用 `GitHub Actions` 运行自动检查（ruff 风格检查、compileall 语法检查、pytest 单元测试）。
-- Docker 部署使用 `XXX`。
+- Docker 部署使用 `Dockerfile` + `.dockerignore`，容器以非 root 用户运行，一个容器同时提供页面与 API（步骤见[运行说明](docs/04_运行与结业提交.md)）。
 
 ## 项目文档
 
