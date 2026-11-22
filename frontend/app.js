@@ -662,6 +662,7 @@
     let moving = false;
     const dir = heldVector();
     if (dir) {
+      if (patrol.on) stopPatrol("已停止自动巡检：转手动控制。");
       actor.path.length = 0;
       moving = nudge(dir.x * FREE_SPEED * dt, dir.y * FREE_SPEED * dt);
     } else if (actor.path.length) {
@@ -679,9 +680,17 @@
       applyActorTransform();
       applyActorLook();
       updateFacts();
-      setFeedback("已到达 (" + actor.x.toFixed(1) + ", " + actor.y.toFixed(1) + ")。", "success");
+      const arrived = "(" + actor.x.toFixed(1) + ", " + actor.y.toFixed(1) + ")";
+      if (patrol.on) {
+        setFeedback("巡检中 " + patrol.done + "/" + patrol.total + "：已到 " + arrived, "success");
+      } else {
+        setFeedback("已到达 " + arrived + "。", "success");
+      }
       actor.target = null;
     }
+
+    // 自动巡检：静止且没有目标时，取下一个点位
+    if (patrol.on && !moving && !actor.target) patrolNext();
 
     if (moving) {
       applyActorTransform();
@@ -751,8 +760,10 @@
   let pressPoint = null;
 
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
-  function walkTo(cellX, cellY, offsetX, offsetY) {
+  function walkTo(cellX, cellY, offsetX, offsetY, options) {
     if (!currentState) return;
+    // 手动点地图说明用户要自己开，先把自动巡检停掉
+    if (patrol.on && !(options && options.silent)) stopPatrol("已停止自动巡检：转手动控制。");
     if (isBlockedCell(cellX, cellY)) {
       setFeedback("那一格立着「禁止通行」牌，站不了人。", "warn");
       return;
@@ -772,7 +783,103 @@
     actor.target = target;
     setWalking(true);
     if (actor.node) actor.node.classList.add("is-free");
-    setFeedback("正在走向 (" + target.x.toFixed(1) + ", " + target.y.toFixed(1) + ")…");
+    if (!(options && options.silent)) {
+      setFeedback("正在走向 (" + target.x.toFixed(1) + ", " + target.y.toFixed(1) + ")…");
+    }
+  }
+
+  /* ---------------------------------------------------------------- 自动巡检 */
+
+  const patrolBtn = document.getElementById("patrol-toggle");
+  const patrolLabel = document.getElementById("patrol-label");
+
+  const patrol = { on: false, queue: [], total: 0, done: 0, startedAt: 0 };
+
+  /**
+   * 巡检点位：蛇形扫过整张地图，每两格取一点，跳过装了禁止通行牌的格子。
+   * 点位密度刻意比格子稀疏，走起来像在巡视，而不是逐格扫描。
+   */
+  function patrolRoute(state) {
+    const points = [];
+    const width = state.grid.width;
+    const height = state.grid.height;
+    let rowIndex = 0;
+    for (let y = 0; y < height; y += 2, rowIndex += 1) {
+      const row = [];
+      for (let x = 0; x < width; x += 2) {
+        if (!isBlockedCell(x, y)) row.push(x);
+      }
+      if (rowIndex % 2 === 1) row.reverse();
+      row.forEach((x) => points.push({ x: x, y: y }));
+    }
+    return points;
+  }
+
+  function setPatrolButton(on) {
+    if (!patrolBtn) return;
+    patrolBtn.classList.toggle("is-on", on);
+    patrolBtn.setAttribute("aria-pressed", String(on));
+    if (patrolLabel) patrolLabel.textContent = on ? "停止巡检" : "自动巡检";
+  }
+
+  /** 取下一个点位；走不到就跳过，全部走完就收尾。 */
+  function patrolNext() {
+    if (!patrol.on) return;
+    if (!patrol.queue.length) {
+      finishPatrol();
+      return;
+    }
+    const point = patrol.queue.shift();
+    walkTo(point.x, point.y, 0.5, 0.5, { silent: true });
+    if (actor.target) {
+      patrol.done += 1;
+      setFeedback("巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…");
+    } else {
+      // 这一格被围住，跳过继续
+      patrolNext();
+    }
+  }
+
+  function finishPatrol() {
+    const seconds = ((performance.now() - patrol.startedAt) / 1000).toFixed(1);
+    const total = patrol.total;
+    patrol.on = false;
+    patrol.queue = [];
+    setPatrolButton(false);
+    setFeedback("巡检完成：" + total + " 个点位，用时 " + seconds + " 秒。", "success");
+  }
+
+  function startPatrol() {
+    if (!currentState || patrol.on) return;
+    if (mode !== "free") setMode("free");
+    const route = patrolRoute(currentState);
+    if (!route.length) {
+      setFeedback("没有可以巡检的格子。", "warn");
+      return;
+    }
+    heldKeys.clear();
+    actor.path.length = 0;
+    actor.target = null;
+    patrol.queue = route;
+    patrol.total = route.length;
+    patrol.done = 0;
+    patrol.startedAt = performance.now();
+    patrol.on = true;
+    setPatrolButton(true);
+    startLoop();
+    setFeedback("自动巡检开始：" + patrol.total + " 个点位，随时点地图或按方向键可接管。");
+    patrolNext();
+  }
+
+  function stopPatrol(reason) {
+    if (!patrol.on) return;
+    patrol.on = false;
+    patrol.queue = [];
+    actor.target = null;
+    actor.path.length = 0;
+    setWalking(false);
+    setPatrolButton(false);
+    if (reason) setFeedback(reason, "warn");
   }
 
   /* ---------------------------------------------------------------- 渲染 */
@@ -926,6 +1033,7 @@
     });
     // 「重新读取状态」是加载失败后的重试入口，只跟着请求在飞时禁用
     els.reload.disabled = busy;
+    patrolBtn.disabled = busy || noState;
     els.board.setAttribute("aria-busy", busy ? "true" : "false");
   }
 
@@ -935,6 +1043,7 @@
   }
 
   function setMode(next) {
+    stopPatrol("已停止自动巡检：切换了控制模式。");
     mode = next;
     els.modeBtns.forEach((btn) => {
       const on = btn.dataset.mode === next;
@@ -976,6 +1085,8 @@
   async function loadState(options) {
     const initial = Boolean(options && options.initial);
     if (busy) return;
+    // 重新读数会让位置跳变，先把自动巡检停掉
+    stopPatrol("已停止自动巡检：状态被重新读取。");
 
     busy = true;
     syncControls();
@@ -1110,6 +1221,7 @@
   }
 
   function openSetup() {
+    stopPatrol("已停止自动巡检：重新选择了场景。");
     els.start.hidden = false;
     started = false;
     setWalking(false);
@@ -1388,6 +1500,13 @@
     els.modeBtns.forEach((btn) => {
       btn.addEventListener("click", () => setMode(btn.dataset.mode));
     });
+
+    if (patrolBtn) {
+      patrolBtn.addEventListener("click", () => {
+        if (patrol.on) stopPatrol("已停止自动巡检。");
+        else startPatrol();
+      });
+    }
 
     // 点地图：自由模式下走过去
     // 地图上按住就能走：按下立刻出发，按住拖动时换成指针下面的那个格子
