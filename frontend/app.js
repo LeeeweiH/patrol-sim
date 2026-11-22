@@ -1275,9 +1275,19 @@
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "scan");
     svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    svg.append(ring, path);
+    const ns = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(ns, "defs");
+    const clip = document.createElementNS(ns, "clipPath");
+    clip.setAttribute("id", "scan-clip");
+    const clipRect = document.createElementNS(ns, "rect");
+    clip.append(clipRect);
+    defs.append(clip);
+    const group = document.createElementNS(ns, "g");
+    group.setAttribute("clip-path", "url(#scan-clip)");
+    const path = document.createElementNS(ns, "path");
+    const ring = document.createElementNS(ns, "circle");
+    group.append(ring, path);
+    svg.append(defs, group);
     els.board.append(svg);
     scanLayer = svg;
     return svg;
@@ -1303,6 +1313,16 @@
     const width = currentState.grid.width;
     const height = currentState.grid.height;
     const blocked = obstacleSet();
+
+    // 传感器只画在地图范围内：把扫描层裁剪到网格边界，别糊到面板留白上
+    const clipRect = svg.querySelector("#scan-clip rect");
+    if (clipRect) {
+      const pad = metrics.step / 2;
+      clipRect.setAttribute("x", String(metrics.originX - pad));
+      clipRect.setAttribute("y", String(metrics.originY - pad));
+      clipRect.setAttribute("width", String((width - 1) * metrics.step + metrics.cellPx));
+      clipRect.setAttribute("height", String((height - 1) * metrics.step + metrics.cellPx));
+    }
     const cx = metrics.originX + actor.x * metrics.step;
     const cy = metrics.originY + actor.y * metrics.step;
     const radius = SCAN_RANGE * metrics.step;
