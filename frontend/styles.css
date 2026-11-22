@@ -1705,3 +1705,27 @@ kbd {
   display: flex;
   margin-top: 8px;
 }
+
+/* 传感器照到但被挡住、扫不到的格子：浅斜纹 */
+.cell--unseen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(29, 111, 122, 0.1) 0 2px,
+    transparent 2px 6px
+  );
+  pointer-events: none;
+}
+
+.swatch-scanned {
+  border: 1px solid #cfe0ea;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(29, 111, 122, 0.28) 0 2px,
+    transparent 2px 5px
+  );
+  background-color: rgba(29, 111, 122, 0.08);
+}

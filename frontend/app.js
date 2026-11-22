@@ -1072,6 +1072,8 @@
 
     const segs = [];
     const stepLen = 0.08;
+    const visible = new Set();
+    const inRange = new Set();
     scanFresh = false;
 
     for (let i = 0; i < SCAN_RAYS; i += 1) {
@@ -1090,6 +1092,7 @@
         const gy = Math.round(py);
         if (blocked.has(gx + "," + gy)) break;
         const key = cellKey(gx, gy);
+        visible.add(key);
         if (!scanned.has(key)) {
           scanned.add(key);
           scanFresh = true;
@@ -1098,6 +1101,19 @@
         lastY = cy + dy * dist * metrics.step;
       }
       segs.push("M" + cx.toFixed(1) + " " + cy.toFixed(1) + "L" + lastX.toFixed(1) + " " + lastY.toFixed(1));
+    }
+
+    // 量程内的所有空格子：没被任何射线照到的就是被挡住的「盲区」
+    const reach = Math.ceil(SCAN_RANGE) + 1;
+    for (let dy = -reach; dy <= reach; dy += 1) {
+      for (let dx = -reach; dx <= reach; dx += 1) {
+        const gx = Math.round(actor.x) + dx;
+        const gy = Math.round(actor.y) + dy;
+        if (gx < 0 || gy < 0 || gx >= width || gy >= height) continue;
+        if (blocked.has(gx + "," + gy)) continue;
+        if (Math.hypot(gx - actor.x, gy - actor.y) > SCAN_RANGE) continue;
+        inRange.add(cellKey(gx, gy));
+      }
     }
 
     svg.querySelector("path").setAttribute("d", segs.join(" "));
@@ -1109,6 +1125,10 @@
       els.board.querySelectorAll(".cell").forEach((cell) => {
         const key = cell.dataset.x + "," + cell.dataset.y;
         cell.classList.toggle("cell--scanned", scanned.has(key));
+        cell.classList.toggle(
+          "cell--unseen",
+          scanOn && inRange.has(key) && !visible.has(key) && !cell.classList.contains("cell--block")
+        );
       });
       svg.classList.remove("is-pulse");
       void svg.offsetWidth;
