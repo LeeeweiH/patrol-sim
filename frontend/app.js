@@ -792,14 +792,25 @@
 
   const patrolBtn = document.getElementById("patrol-toggle");
   const patrolLabel = document.getElementById("patrol-label");
+  const patrolReportBtn = document.getElementById("patrol-report");
 
-  const patrol = { on: false, queue: [], total: 0, done: 0, startedAt: 0 };
+  const patrol = {
+    on: false,
+    queue: [],
+    total: 0,
+    done: 0,
+    skipped: 0,
+    startedAt: 0,
+    steps0: 0,
+    visited0: 0,
+    lastSummary: null,
+  };
 
   /**
-   * 巡检点位：蛇形扫过整张地图，每两格取一点，跳过装了禁止通行牌的格子。
-   * 点位密度刻意比格子稀疏，走起来像在巡视，而不是逐格扫描。
+   * 候选点位：按行蛇形采样，每两格取一点，跳过装了禁止通行牌的格子。
+   * 密度刻意比格子稀疏，走起来像巡视，而不是逐格扫描。
    */
-  function patrolRoute(state) {
+  function patrolCandidates(state) {
     const points = [];
     const width = state.grid.width;
     const height = state.grid.height;
@@ -820,6 +831,7 @@
     patrolBtn.classList.toggle("is-on", on);
     patrolBtn.setAttribute("aria-pressed", String(on));
     if (patrolLabel) patrolLabel.textContent = on ? "停止巡检" : "自动巡检";
+    if (on && patrolReportBtn) patrolReportBtn.hidden = true;
   }
 
   /** 取下一个点位；走不到就跳过，全部走完就收尾。 */
@@ -830,29 +842,61 @@
       return;
     }
     const point = patrol.queue.shift();
+
+    // 最近的候选点可能就是脚下这一格：直接算作已巡检，别在原地等一个永远走不到的终点
+    if (Math.abs(point.x - actor.x) < 0.35 && Math.abs(point.y - actor.y) < 0.35) {
+      patrol.done += 1;
+      patrolNext();
+      return;
+    }
+
     walkTo(point.x, point.y, 0.5, 0.5, { silent: true });
     if (actor.target) {
       patrol.done += 1;
-      setFeedback("巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…");
+      setFeedback(
+        "巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…"
+      );
     } else {
-      // 这一格被围住，跳过继续
+      patrol.skipped += 1;
       patrolNext();
     }
   }
 
+  /** 巡检结束：给出步数、覆盖率与用时，并把导出按钮亮出来。 */
   function finishPatrol() {
     const seconds = ((performance.now() - patrol.startedAt) / 1000).toFixed(1);
-    const total = patrol.total;
+    // 注意：这里不能叫 steps，会和模块级的 let steps 撞名字，导致 TDZ 报错
+    const movedSteps = Math.max(0, steps - patrol.steps0);
+    const visited = Math.max(0, trail.size - patrol.visited0);
     patrol.on = false;
     patrol.queue = [];
     setPatrolButton(false);
-    setFeedback("巡检完成：" + total + " 个点位，用时 " + seconds + " 秒。", "success");
+    patrol.lastSummary = { seconds: seconds, steps: movedSteps, visited: visited };
+    if (patrolReportBtn) patrolReportBtn.hidden = false;
+    setFeedback(
+      "巡检完成：" +
+        patrol.done +
+        " 个点位，用时 " +
+        seconds +
+        " 秒，移动 " +
+        movedSteps +
+        " 步，新覆盖 " +
+        visited +
+        " 格。" +
+        (patrol.skipped ? "（跳过 " + patrol.skipped + " 个走不到的点位）" : ""),
+      "success"
+    );
   }
 
   function startPatrol() {
     if (!currentState || patrol.on) return;
     if (mode !== "free") setMode("free");
-    const route = patrolRoute(currentState);
+    const candidates = patrolCandidates(currentState);
+    if (!candidates.length) {
+      setFeedback("没有可以巡检的格子。", "warn");
+      return;
+    }
+    const route = candidates;
     if (!route.length) {
       setFeedback("没有可以巡检的格子。", "warn");
       return;
@@ -863,11 +907,18 @@
     patrol.queue = route;
     patrol.total = route.length;
     patrol.done = 0;
+    patrol.skipped = 0;
     patrol.startedAt = performance.now();
+    patrol.steps0 = steps;
+    patrol.visited0 = trail.size;
     patrol.on = true;
     setPatrolButton(true);
     startLoop();
-    setFeedback("自动巡检开始：" + patrol.total + " 个点位，随时点地图或按方向键可接管。");
+    setFeedback(
+      "自动巡检开始：" +
+        patrol.total +
+        " 个点位，按就近顺序走，随时点地图或按方向键可接管。"
+    );
     patrolNext();
   }
 
@@ -880,6 +931,48 @@
     setWalking(false);
     setPatrolButton(false);
     if (reason) setFeedback(reason, "warn");
+  }
+
+  /** 生成 Markdown 巡检报告并下载，方便贴进结业材料或存档。 */
+  function exportPatrolReport() {
+    const sum = patrol.lastSummary || { seconds: "0.0", steps: 0, visited: 0 };
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp =
+      now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + "-" +
+      pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+    const grid = currentState ? currentState.grid : { width: 0, height: 0, obstacles: [] };
+    const pos = currentState
+      ? "(" + currentState.robot.x.toFixed(1) + ", " + currentState.robot.y.toFixed(1) + ")"
+      : "未知";
+    const lines = [
+      "# 巡检报告",
+      "",
+      "- 生成时间：" + now.toLocaleString("zh-CN"),
+      "- 地图：" + grid.width + " × " + grid.height + "，障碍 " + grid.obstacles.length + " 处",
+      "- 巡检点位：" + patrol.done + " / " + patrol.total +
+        (patrol.skipped ? "（跳过 " + patrol.skipped + " 个）" : ""),
+      "- 用时：" + sum.seconds + " 秒",
+      "- 移动步数：" + sum.steps + " 步",
+      "- 新覆盖格子：" + sum.visited + " 格",
+      "- 结束位置：" + pos,
+      "",
+      "## 路线策略",
+      "",
+      "按行蛇形采样生成巡检点位（每两格取一点，跳过禁止通行牌），按巡游顺序",
+      "逐个推进；每段路径由 A* 规划并做连续扫掠碰撞检测，遇障自动绕行。",
+      "",
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "巡检报告-" + stamp + ".md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setFeedback("巡检报告已导出。", "success");
   }
 
   /* ---------------------------------------------------------------- 渲染 */
@@ -1506,6 +1599,10 @@
         if (patrol.on) stopPatrol("已停止自动巡检。");
         else startPatrol();
       });
+    }
+
+    if (patrolReportBtn) {
+      patrolReportBtn.addEventListener("click", exportPatrolReport);
     }
 
     // 点地图：自由模式下走过去

@@ -1631,3 +1631,20 @@ kbd {
   background: var(--robot);
   box-shadow: 0 0 0 4px rgba(236, 106, 36, 0.16);
 }
+
+/* 巡检完成后的「导出巡检报告」按钮：次要动作，用描边区分 */
+.patrol-btn--report {
+  margin-top: 6px;
+  background: transparent;
+  border: 1px dashed rgba(29, 111, 122, 0.45);
+  color: #1d6f7a;
+}
+
+.patrol-btn--report:hover {
+  background: rgba(29, 111, 122, 0.08);
+  border-color: rgba(29, 111, 122, 0.7);
+}
+
+.patrol-btn--report .patrol-dot {
+  background: #1d6f7a;
+}
