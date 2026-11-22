@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="基于 Web 的智能巡检机器人二维仿真控制台：斜俯视地图、自由移动与格点移动两种操控方式、状态反馈。" />
+    <meta name="description" content="基于 Web 的智能巡检机器人二维仿真控制台：斜俯视地图、点击或长按连续移动、虚拟传感器与自动巡检。" />
     <title>智能巡检机器人 · 二维仿真控制台</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=22" />
+    <link rel="stylesheet" href="styles.css?v=23" />
   </head>
   <body>
     <header class="topbar">
@@ -76,7 +76,7 @@
       <section class="panel side-panel" id="side-panel" aria-labelledby="control-title">
         <div class="panel-head">
           <h2 id="control-title">手动控制</h2>
-          <p class="hint" id="control-hint">点击地图走过去</p>
+          <p class="hint" id="control-hint">点击或长按地图走过去</p>
         </div>
 
         <dl class="facts">
@@ -99,11 +99,6 @@
           <span class="trail-item"><span class="trail-label">经过</span><b class="trail-value" id="fact-visited">0</b><span class="trail-unit">格</span></span>
           <span class="trail-item"><span class="trail-label">已扫描</span><b class="trail-value" id="fact-scanned">0</b><span class="trail-unit">格</span></span>
         </p>
-
-        <div class="mode" role="group" aria-label="控制模式">
-          <button class="mode-btn is-on" type="button" data-mode="free" aria-pressed="true">自由移动</button>
-          <button class="mode-btn" type="button" data-mode="grid" aria-pressed="false">格点移动</button>
-        </div>
 
         <button class="patrol-btn" id="patrol-toggle" type="button" aria-pressed="false">
           <span class="patrol-dot" aria-hidden="true"></span>
@@ -167,7 +162,7 @@
 
     <footer class="foot">
       <p id="foot-note">
-        地图与障碍来自后端接口；自由移动是页面内的运动模拟，切回格点移动会以服务端状态为准。
+        地图与障碍来自后端接口；移动是页面内连续计算的，不会为每一步请求后端。
       </p>
     </footer>
 
@@ -256,6 +251,6 @@
     </div>
 
 
-  <script src="app.js?v=22"></script>
+  <script src="app.js?v=23"></script>
   </body>
 </html>

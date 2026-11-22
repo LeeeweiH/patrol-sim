@@ -3,11 +3,6 @@
  *
  * 两套操控方式，共用同一张地图和同一台机器人：
  *
- * - 格点移动（grid）：只认服务端。点方向键 → POST /api/move → 用响应里的完整状态重绘，
- *   前端不预测位置。这是与后端契约（docs/03_项目架构与接口.md）一致的演示路径。
- * - 自由移动（free）：页面内的连续运动模拟。点地图任意位置就走过去（A* 绕开障碍），
- *   按 WASD/方向键则持续移动；障碍按正方形碰撞体处理，机器人是圆形，可以贴边滑行。
- *   这条路径不写服务端，切回格点模式时以服务端状态为准。
  *
  * 失败语义两套模式一样：4xx 是明确拒绝（位置不变），超时/网络/5xx 是结果未确认（提示重新读取，不自动重发）。
  */
@@ -82,7 +77,6 @@
     reportsBody: document.getElementById("reports-body"),
     reportsHint: document.getElementById("reports-hint"),
     factScanned: document.getElementById("fact-scanned"),
-    modeBtns: Array.from(document.querySelectorAll(".mode-btn")),
     openScene: document.getElementById("open-scene"),
     start: document.getElementById("start"),
     startGo: document.getElementById("start-go"),
@@ -111,7 +105,9 @@
   // 后端当前场景 id，切地图时用它判断要不要发 /api/scene
   let currentSceneId = "standard";
   let started = false;
-  let mode = "free"; // free | grid
+  // 只保留自由移动（格点移动已移除）。这里仍是常量而不是删掉变量：
+  // 少数旧分支用 mode 做守卫，留着可以保证它们永远不可达，也方便以后加别的模式。
+  const mode = "free";
 
   /* ---------------------------------------------------------------- 模型 */
 
@@ -710,7 +706,50 @@
   // 于是雷达扇形和轨迹会「停在上一帧」。这里按 90ms 或换格时补刷一次，既跟手又不掉帧。
   let lastScanPaint = 0;
   let lastScanCell = "";
+  /**
+   * 导图层的尺寸只在这里统一算：resize / 全屏切换 / 右栏折叠后，
+   * 扫描扇形和轨迹线都会跟着重算一遍，不会出现「放大后消失、点一下才回来」。
+   */
+  let lastBoardW = 0;
+  let lastBoardH = 0;
+
+  function layoutOverlays() {
+    if (!els.board) return;
+    const width = els.board.clientWidth;
+    const height = els.board.clientHeight;
+    if (!width || !height) return;
+    const box = "0 0 " + width + " " + height;
+    [scanLayerElement(), traceLayerElement()].forEach((svg) => {
+      if (!svg) return;
+      svg.setAttribute("viewBox", box);
+      svg.setAttribute("width", String(width));
+      svg.setAttribute("height", String(height));
+      svg.setAttribute("preserveAspectRatio", "none");
+    });
+    // 尺寸变了，角色的像素坐标也得按新格宽重算，否则会出现「格子变了、狗还站在老地方」
+    if (actor.node) {
+      applyActorTransform();
+      applyActorLook();
+    }
+    updateScan();
+    paintTrack();
+    paintTrail();
+  }
+
   function refreshOverlays(timestamp, force) {
+    // 兜底自检：浏览器偶尔不发 resize（iframe 内嵌、某些全屏切换），
+    // 只靠事件会让导图层停在旧尺寸上——这里每帧比一次尺寸，变了就重排。
+    if (els.board) {
+      const bw = els.board.clientWidth;
+      const bh = els.board.clientHeight;
+      if (bw && bh && (bw !== lastBoardW || bh !== lastBoardH)) {
+        lastBoardW = bw;
+        lastBoardH = bh;
+        layoutOverlays();
+        lastScanPaint = timestamp || 0;
+        return;
+      }
+    }
     const cell = Math.round(actor.x) + "," + Math.round(actor.y);
     if (!force && cell === lastScanCell && timestamp - lastScanPaint < 90) return;
     lastScanCell = cell;
@@ -953,20 +992,57 @@
    * 候选点位：按行蛇形采样，每两格取一点，跳过装了禁止通行牌的格子。
    * 密度刻意比格子稀疏，走起来像巡视，而不是逐格扫描。
    */
+  /** 候选点位：铺满地图的稀疏采样（每两格一个），避开禁行牌。 */
   function patrolCandidates(state) {
-    const points = [];
     const width = state.grid.width;
     const height = state.grid.height;
-    let rowIndex = 0;
-    for (let y = 0; y < height; y += 2, rowIndex += 1) {
-      const row = [];
-      for (let x = 0; x < width; x += 2) {
-        if (!isBlockedCell(x, y)) row.push(x);
-      }
-      if (rowIndex % 2 === 1) row.reverse();
-      row.forEach((x) => points.push({ x: x, y: y }));
+    const points = [];
+    const push = (x, y) => {
+      if (isBlockedCell(x, y)) return;
+      if (points.some((p) => p.x === x && p.y === y)) return;
+      points.push({ x: x, y: y });
+    };
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) push(x, y);
+    }
+    // 宽高是奇数时，末行/末列不会被两格步长覆盖，补一排，边上那圈也巡得到
+    if ((height - 1) % 2 !== 0) {
+      for (let x = 0; x < width; x += 2) push(x, height - 1);
+    }
+    if ((width - 1) % 2 !== 0) {
+      for (let y = 0; y < height; y += 2) push(width - 1, y);
     }
     return points;
+  }
+
+  /**
+   * 巡检顺序自己规划：从当前位置出发，每次挑「真的走得最近」的未巡检点。
+   * 距离用 A* 的路径格数，不是直线距离——绕开牌子之后的远近才是关键；
+   * 一个点都到不了（被围死）就跳过，避免整轮卡住。
+   */
+  function planPatrolRoute(state, start) {
+    const remaining = patrolCandidates(state);
+    const route = [];
+    const from = { x: Math.round(start.x), y: Math.round(start.y) };
+    let cursor = from;
+    while (remaining.length) {
+      let bestIndex = -1;
+      let bestCost = Infinity;
+      for (let i = 0; i < remaining.length; i += 1) {
+        const point = remaining[i];
+        const path = findPathCells(cursor.x, cursor.y, point.x, point.y);
+        const cost = path && path.length ? path.length : Infinity;
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestIndex = i;
+        }
+      }
+      if (bestIndex < 0) break;
+      const next = remaining.splice(bestIndex, 1)[0];
+      route.push(next);
+      cursor = next;
+    }
+    return route;
   }
 
   function setPatrolButton(on) {
@@ -1039,13 +1115,7 @@
 
   function startPatrol() {
     if (!currentState || patrol.on) return;
-    if (mode !== "free") setMode("free");
-    const candidates = patrolCandidates(currentState);
-    if (!candidates.length) {
-      setFeedback("没有可以巡检的格子。", "warn");
-      return;
-    }
-    const route = candidates;
+    const route = planPatrolRoute(currentState, { x: actor.x, y: actor.y });
     if (!route.length) {
       setFeedback("没有可以巡检的格子。", "warn");
       return;
@@ -1612,7 +1682,14 @@
     els.factSteps.textContent = String(steps);
     els.factVisited.textContent = String(trail.size);
     updateFacts();
-  }
+  
+    // 地图刚重绘时布局可能还没稳定（换场景会改变列数），
+    // 等下一帧再按真实格宽摆一次角色和导图层，避免站在旧坐标上。
+    window.requestAnimationFrame(() => {
+      applyActorTransform();
+      layoutOverlays();
+    });
+}
 
   function mapMeta(state) {
     const name = state.scene && state.scene.name ? state.scene.name + " · " : "";
@@ -1651,42 +1728,13 @@
     els.placeholder.hidden = false;
   }
 
-  function setMode(next) {
-    stopPatrol("已停止自动巡检：切换了控制模式。");
-    mode = next;
-    els.modeBtns.forEach((btn) => {
-      const on = btn.dataset.mode === next;
-      btn.classList.toggle("is-on", on);
-      btn.setAttribute("aria-pressed", String(on));
-    });
-
-    if (next === "free") {
-      els.controlHint.textContent = "点击地图走过去";
-      els.keysHint.innerHTML = "也可以按住 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动";
-      els.footNote.textContent =
-        "地图与障碍来自后端接口；自由移动是页面内的运动模拟，切回格点移动会以服务端状态为准。";
-      actor.path.length = 0;
-      setWalking(false);
-      if (actor.node) actor.node.classList.remove("is-grid");
-    } else {
-      els.controlHint.textContent = "每次点击移动一格";
-      els.keysHint.innerHTML = "也可以直接用键盘 <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移动";
-      els.footNote.textContent =
-        "地图与状态全部来自后端接口，页面不做本地预测；请求失败时不会改变画面中的机器人位置。";
-      heldKeys.clear();
-      actor.path.length = 0;
-      setWalking(false);
-      if (currentState) {
-        actor.x = currentState.robot.x;
-        actor.y = currentState.robot.y;
-        actor.heading = currentState.robot.heading;
-        applyActorTransform();
-        applyActorLook();
-      }
-      if (actor.node) actor.node.classList.add("is-grid");
-    }
-    updateFacts();
-    syncControls();
+  /** 自由移动的固定文案：没有模式切换，进入场景时刷一次就够。 */
+  function applyFreeTexts() {
+    els.controlHint.textContent = "点击或长按地图走过去";
+    els.keysHint.innerHTML = "也可以按住 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动";
+    els.footNote.textContent =
+      "地图与障碍来自后端接口；移动是在页面内连续计算的，不会为每一步请求后端。";
+    if (actor.node) actor.node.classList.remove("is-grid");
   }
 
   /* ---------------------------------------------------------------- 交互 */
@@ -1741,78 +1789,8 @@
     }
   }
 
-  async function move(direction) {
-    if (mode !== "grid" || busy || !currentState) return;
-    if (!Object.prototype.hasOwnProperty.call(DIRECTIONS, direction)) return;
-
-    const from = { x: currentState.robot.x, y: currentState.robot.y };
-
-    busy = true;
-    syncControls();
-    setFeedback("正在发送「向" + DIRECTIONS[direction] + "移动」指令…");
-
-    try {
-      const state = validateState(
-        await requestJSON("/api/move", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ direction: direction }),
-        })
-      );
-      currentState = state;
-      steps += 1;
-      trackPosition(state, from);
-
-      actor.x = state.robot.x;
-      actor.y = state.robot.y;
-      actor.heading = state.robot.heading;
-      actor.cell = cellKey(state.robot.x, state.robot.y);
-
-      renderState(state, { moved: true });
-      setConnection("online", "服务在线");
-      setFeedback(
-        "已向" + DIRECTIONS[direction] + "移动一格，当前位置 (" + state.robot.x + ", " + state.robot.y + ")。",
-        "success"
-      );
-      scheduleSettle();
-    } catch (error) {
-      const rejected = error.status >= 400 && error.status < 500;
-      if (rejected) {
-        setFeedback("移动被拒绝：" + describeError(error), "warn");
-        setConnection("online", "服务在线");
-      } else {
-        setFeedback(
-          "移动结果未确认：" + describeError(error) + "。最新状态尚未确认，请点「重新读取状态」，不要重复点击方向键。",
-          "error"
-        );
-        if (error.code === "network" || error.code === "timeout") {
-          setConnection("offline", "未连接服务");
-        }
-      }
-    } finally {
-      busy = false;
-      syncControls();
-    }
-  }
-
   // 服务端把「刚完成一次移动」只保持一小段时间，之后自动回到 idle。
   // 这里在移动结束后悄悄再读一次状态，只刷新面板上的坐标/朝向/状态，不动提示文案。
-  let settleTimer = 0;
-
-  function scheduleSettle() {
-    window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(async () => {
-      if (busy || !currentState || mode !== "grid") return;
-      try {
-        const state = validateState(await requestJSON("/api/state"));
-        if (busy) return;
-        currentState = state;
-        updateFacts();
-      } catch (error) {
-        // 只是让状态显示落回「待命」，失败就不动，保留上一次的画面
-      }
-    }, 900);
-  }
 
   function describeError(error) {
     if (error instanceof ApiError) return error.message;
@@ -1963,17 +1941,6 @@
   }
 
   /** 格点模式下摇杆当成「推一下走一格」，用冷却时间挡掉连发。 */
-  function stickStep(dx, dy) {
-    const now = Date.now();
-    if (now - stickLastStep < 420) return;
-    stickLastStep = now;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      if (Math.abs(dx) > 0.05) move(dx > 0 ? "right" : "left");
-    } else {
-      move(dy > 0 ? "down" : "up");
-    }
-  }
-
   function trackStick(event) {
     if (!els.stickBase || stickPointer === null) return;
     const rect = els.stickBase.getBoundingClientRect();
@@ -2001,11 +1968,6 @@
     stick.active = true;
     stick.dx = (dx / len) * speed;
     stick.dy = (dy / len) * speed;
-
-    if (mode === "grid") {
-      stickStep(stick.dx, stick.dy);
-      return;
-    }
     startLoop();
   }
 
@@ -2119,10 +2081,13 @@
     let resizeFrame = 0;
     const refit = () => {
       window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => fitStage({ instant: true }));
+      resizeFrame = window.requestAnimationFrame(() => {
+        fitStage({ instant: true });
+        layoutOverlays();
+      });
     };
     window.addEventListener("resize", refit);
-    window.addEventListener("resize", () => paintTrack());
+    window.addEventListener("resize", () => layoutOverlays());
 
     // resize 事件偶尔拿到的还是旧布局（尤其是全屏切换），再挂一层观察器兜底
     if (typeof ResizeObserver === "function" && els.stage) {
@@ -2134,7 +2099,7 @@
     els.sideToggle.addEventListener("click", () => {
       setSide(!els.layout.classList.contains("is-collapsed"));
     });
-    // 方向键：自由模式按住持续走，格点模式点一下走一格
+    // 方向键：按住持续走，松手停
     els.keys.forEach((button) => {
       const direction = button.dataset.direction;
 
@@ -2152,15 +2117,6 @@
       button.addEventListener("pointerup", release);
       button.addEventListener("pointerleave", release);
       button.addEventListener("pointercancel", release);
-
-      button.addEventListener("click", () => {
-        if (mode !== "grid") return;
-        move(direction);
-      });
-    });
-
-    els.modeBtns.forEach((btn) => {
-      btn.addEventListener("click", () => setMode(btn.dataset.mode));
     });
 
     if (patrolBtn) {
@@ -2257,11 +2213,6 @@
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
       event.preventDefault();
-
-      if (mode === "grid") {
-        if (!event.repeat) move(direction);
-        return;
-      }
       heldKeys.add(direction);
       markHeldKey(direction, true);
       startLoop();
@@ -2290,7 +2241,14 @@
     restoreScan();
     restoreTrace();
     syncControls();
-    setMode("free");
+    applyFreeTexts();
+    // 扫描扇形与轨迹要跟着角色走：单独一层 rAF，和移动循环解耦，
+    // 这样即使没在移动（改变窗口大小、切右栏）也能对上位置。
+    (function overlayLoop(ts) {
+      refreshOverlays(ts);
+      window.requestAnimationFrame(overlayLoop);
+    })(0);
+
     loadState({ initial: true });
 
     // 模型异步取：取到以后重画一遍，角色和牌子才会立到地图上

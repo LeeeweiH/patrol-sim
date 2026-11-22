@@ -1003,33 +1003,6 @@ kbd {
   font-size: 9px;
 }
 
-/* 控制模式切换 */
-.mode {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  margin: 2px 0 12px;
-  border-radius: 11px;
-  background: #edf1f4;
-}
-
-.mode-btn {
-  padding: 6px 13px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.mode-btn.is-on {
-  background: #fff;
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(20, 32, 42, 0.14);
-}
 
 .key.is-held {
   border-color: #e2a377;
