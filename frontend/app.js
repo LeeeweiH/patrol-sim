@@ -873,7 +873,13 @@
     patrol.on = false;
     patrol.queue = [];
     setPatrolButton(false);
-    patrol.lastSummary = { seconds: seconds, steps: movedSteps, visited: visited };
+    patrol.lastSummary = {
+      seconds: seconds,
+      steps: movedSteps,
+      visited: visited,
+      points: patrol.done,
+      total: patrol.total,
+    };
     if (patrolReportBtn) patrolReportBtn.hidden = false;
     setFeedback(
       "巡检完成：" +
@@ -982,6 +988,25 @@
     a.remove();
     URL.revokeObjectURL(url);
     setFeedback("巡检报告已导出。", "success");
+
+    // 顺手存一份到服务端，多次巡检可以在 /api/reports 里对比
+    requestJSON("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scene: currentSceneId,
+        points: sum.points,
+        seconds: Number(sum.seconds),
+        steps: sum.steps,
+        visited: sum.visited,
+      }),
+    })
+      .then((res) => {
+        setFeedback("巡检报告已导出，并存档为第 " + res.report.id + " 条记录。", "success");
+      })
+      .catch(() => {
+        setFeedback("巡检报告已导出（服务端存档失败，可稍后重试）。", "warn");
+      });
   }
 
   /* ---------------------------------------------------------------- 渲染 */

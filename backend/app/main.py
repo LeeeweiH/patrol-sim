@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -36,9 +37,18 @@ LOGGER = logging.getLogger("patrol")
 SIM = Simulation()
 
 
+# ---- 巡检报告留档（内存，最多留 50 条） --------------------------------------
+REPORTS: list[dict] = []
+REPORT_LIMIT = 50
+REPORT_SEQ = 0
+
+
 def reset_state() -> None:
-    """把场景和机器人一起复位，测试用。"""
+    """把场景、机器人和报告一起复位，测试用。"""
+    global REPORT_SEQ
     SIM.set_scene(DEFAULT_SCENE)
+    REPORTS.clear()
+    REPORT_SEQ = 0
 
 
 # ---- 运行时配置 --------------------------------------------------------------
@@ -138,6 +148,49 @@ def create_app() -> FastAPI:
             state["robot"]["y"],
         )
         return state
+
+    @app.post("/api/report")
+    async def save_report(request: Request):
+        global REPORT_SEQ
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return error(400, "invalid_json", "请求体必须是合法的 JSON")
+        if not isinstance(payload, dict):
+            return error(400, "invalid_report", "报告内容必须是 JSON 对象")
+
+        scene_id = payload.get("scene")
+        if scene_id not in SCENES:
+            known = "、".join(SCENES)
+            return error(400, "invalid_report", f"未知的地图 id：{scene_id}，可选值：{known}")
+
+        numbers: dict[str, float | int] = {}
+        for key in ("points", "seconds", "steps", "visited"):
+            value = payload.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                return error(400, "invalid_report", f"{key} 必须是非负数字")
+            numbers[key] = round(float(value), 1) if key == "seconds" else int(value)
+
+        REPORT_SEQ += 1
+        record = {
+            "id": REPORT_SEQ,
+            "received_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "scene": scene_id,
+            "scene_name": SCENES[scene_id]["name"],
+            **numbers,
+        }
+        REPORTS.append(record)
+        if len(REPORTS) > REPORT_LIMIT:
+            del REPORTS[0]
+
+        LOGGER.info("报告入库 #%s（%s）", record["id"], scene_id)
+        return {"saved": True, "count": len(REPORTS), "report": record}
+
+    @app.get("/api/reports")
+    def list_reports(limit: int = 10) -> dict:
+        size = max(1, min(limit, REPORT_LIMIT))
+        return {"count": len(REPORTS), "limit": size, "reports": REPORTS[-size:][::-1]}
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
