@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=14" />
+    <link rel="stylesheet" href="styles.css?v=16" />
   </head>
   <body>
     <header class="topbar">
@@ -211,7 +211,15 @@
               <span class="pick-art pick-art--robot" id="robot-preview" aria-hidden="true"></span>
               <span class="pick-body">
                 <span class="pick-name">机器狗 · Go2-lite</span>
-                <span class="pick-meta">四足 · 站立巡检</span>
+                <span class="pick-meta">四足 · 半径 0.26 格 · 2.6 格/秒</span>
+              </span>
+              <span class="pick-tick" aria-hidden="true">✓</span>
+            </button>
+            <button class="pick" type="button" data-pick="robot" data-value="rover" role="radio" aria-checked="false">
+              <span class="pick-art pick-art--robot" id="rover-preview" aria-hidden="true"></span>
+              <span class="pick-body">
+                <span class="pick-name">轮式巡检车 · Rover-1</span>
+                <span class="pick-meta">轮式 · 半径 0.34 格 · 3.2 格/秒</span>
               </span>
               <span class="pick-tick" aria-hidden="true">✓</span>
             </button>
@@ -229,6 +237,6 @@
       <p class="noscript">本页面需要 JavaScript 才能显示地图和发送移动指令，请在浏览器中启用后刷新。</p>
     </noscript>
 
-    <script src="app.js?v=14"></script>
+    <script src="app.js?v=16"></script>
   </body>
 </html>

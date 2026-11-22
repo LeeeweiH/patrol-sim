@@ -1729,3 +1729,86 @@ kbd {
   );
   background-color: rgba(29, 111, 122, 0.08);
 }
+
+/* 轮式巡检车 */
+.billboard--rover .sprite {
+  width: calc(var(--cell-px, 64px) * 1.45);
+}
+
+.sprite .rover-shadow {
+  fill: rgba(20, 32, 42, 0.16);
+}
+
+.sprite .rover-body {
+  fill: #dfe6ea;
+  stroke: #8a9aa3;
+  stroke-width: 2;
+}
+
+.sprite .rover-stripe {
+  fill: var(--robot);
+  opacity: 0.85;
+}
+
+.sprite .rover-deck {
+  fill: #c3ced6;
+  stroke: #8a9aa3;
+  stroke-width: 1.5;
+}
+
+.sprite .rover-mast {
+  fill: #9aa9b4;
+}
+
+.sprite .rover-head {
+  fill: #eef3f6;
+  stroke: #8a9aa3;
+  stroke-width: 2;
+}
+
+.sprite .rover-eye {
+  fill: #2ec4d6;
+}
+
+.sprite .rover-lidar {
+  fill: #7f8d97;
+  stroke: #5f6c75;
+  stroke-width: 1;
+}
+
+.sprite .rover-antenna {
+  fill: none;
+  stroke: #8a9aa3;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sprite .rover-antenna-tip {
+  fill: var(--robot);
+}
+
+.sprite .rover-wheel circle:first-child {
+  fill: #2b343a;
+}
+
+.sprite .wheel-hub {
+  fill: #b9c4cc;
+}
+
+.sprite .wheel-spoke {
+  fill: none;
+  stroke: #b9c4cc;
+  stroke-width: 2;
+}
+
+.sprite.is-walking .rover-wheel {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: wheel-spin 520ms linear infinite;
+}
+
+@keyframes wheel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

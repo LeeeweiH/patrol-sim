@@ -24,6 +24,7 @@ from app.sim import (
     InvalidDirection,
     InvalidScene,
     OutOfBounds,
+    ROBOTS,
     Simulation,
 )
 
@@ -121,6 +122,11 @@ def create_app() -> FastAPI:
 
         LOGGER.info("scene -> %s", scene_id)
         return state
+
+    @app.get("/api/robots")
+    def list_robots() -> dict:
+        """可用机体列表；半径与速度供前端做碰撞判定和移动换算。"""
+        return {"robots": ROBOTS}
 
     @app.post("/api/move")
     async def move(request: Request):

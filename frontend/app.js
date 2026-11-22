@@ -20,8 +20,23 @@
   const STATUS_TEXT = { idle: "待命", moving: "移动中" };
 
   /** 自由移动的行走速度（格/秒）与机器人碰撞半径（格）。 */
-  const FREE_SPEED = 2.6;
-  const ROBOT_RADIUS = 0.26;
+  /** 机体目录：半径与速度跟后端 /api/robots 一致，改这里记得同步 sim.py。 */
+  const ROBOTS = {
+    go2: { sprite: "dog", radius: 0.26, speed: 2.6, label: "机器狗" },
+    rover: { sprite: "rover", radius: 0.34, speed: 3.2, label: "轮式巡检车" },
+  };
+
+  function robotSpec() {
+    return ROBOTS[selection.robot] || ROBOTS.go2;
+  }
+
+  function robotRadius() {
+    return robotSpec().radius;
+  }
+
+  function robotSpeed() {
+    return robotSpec().speed;
+  }
 
   /** 带 code 的请求错误，便于按错误类型分支处理。 */
   class ApiError extends Error {
@@ -66,6 +81,7 @@
     start: document.getElementById("start"),
     startGo: document.getElementById("start-go"),
     robotPreview: document.getElementById("robot-preview"),
+    roverPreview: document.getElementById("rover-preview"),
     picks: Array.from(document.querySelectorAll(".pick[data-pick]")),
   };
 
@@ -100,7 +116,7 @@
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
   const HEADING_FLIP = { right: 1, left: -1, up: 1, down: 1 };
 
-  const sprites = { dog: null, sign: null, crate: null, "gate-in": null, "gate-out": null };
+  const sprites = { dog: null, rover: null, sign: null, crate: null, "gate-in": null, "gate-out": null };
 
   async function loadSprites() {
     try {
@@ -127,6 +143,7 @@
       if (gateIn) sprites["gate-in"] = gateIn;
       if (gateOut) sprites["gate-out"] = gateOut;
       sprites.crate = holder.querySelector("#crate");
+      sprites.rover = holder.querySelector("#rover");
       document.body.append(holder);
       return true;
     } catch (error) {
@@ -322,7 +339,28 @@
 
   /** 把角色立到地图上；重绘地图后节点会被清掉，所以每次重绘都要重新装配。 */
   function ensureActor() {
-    if (actor.node) return actor.node;
+    // 重绘地图会把角色节点从 DOM 里摘掉，但引用还在；这里必须判 isConnected，
+    // 否则换机体之后拿到的还是上一次那个（比如一直是机器狗）。
+    const kind = robotSpec().sprite;
+    if (actor.node && actor.node.isConnected) {
+      // 换了机体但地图没重绘：就地换掉立牌里的精灵和主题类
+      if (actor.kind === kind) return actor.node;
+      const billboard = actor.node.querySelector(".billboard");
+      const stale = billboard && billboard.querySelector(".sprite");
+      const fresh = cloneSprite(kind);
+      if (billboard && stale && fresh) {
+        stale.replaceWith(fresh);
+        billboard.classList.remove("billboard--dog", "billboard--rover");
+        billboard.classList.add("billboard--" + kind);
+        actor.sprite = fresh;
+        actor.kind = kind;
+      }
+      return actor.node;
+    }
+    actor.node = null;
+    actor.sprite = null;
+    actor.facing = null;
+    actor.tag = null;
 
     const node = document.createElement("div");
     node.className = "actor";
@@ -338,8 +376,8 @@
     ground.append(halo, facing);
 
     // 立牌层：反向转回竖直，里面就是屏幕坐标
-    const billboard = makeBillboard("dog");
-    const sprite = cloneSprite("dog");
+    const billboard = makeBillboard(robotSpec().sprite);
+    const sprite = cloneSprite(robotSpec().sprite);
     if (sprite) billboard.append(sprite);
     const tag = document.createElement("span");
     tag.className = "unit-tag";
@@ -350,6 +388,7 @@
     els.board.append(node);
 
     actor.node = node;
+    actor.kind = kind;
     actor.sprite = sprite;
     actor.facing = facing;
     actor.tag = tag;
@@ -402,7 +441,8 @@
       const ny = Math.max(by - 0.5, Math.min(y, by + 0.5));
       const dx = x - nx;
       const dy = y - ny;
-      if (dx * dx + dy * dy < ROBOT_RADIUS * ROBOT_RADIUS) return true;
+      const radius = robotRadius();
+      if (dx * dx + dy * dy < radius * radius) return true;
     }
     return false;
   }
@@ -512,7 +552,7 @@
   function blockedAlong(ax, ay, bx, by) {
     if (!currentState) return true;
     const grid = currentState.grid;
-    const r = ROBOT_RADIUS;
+    const r = robotRadius();
 
     if (Math.min(ax, bx) < 0 || Math.max(ax, bx) > grid.width - 1) return true;
     if (Math.min(ay, by) < 0 || Math.max(ay, by) > grid.height - 1) return true;
@@ -634,7 +674,7 @@
     const dx = next.x - actor.x;
     const dy = next.y - actor.y;
     const dist = Math.hypot(dx, dy);
-    const stepLength = FREE_SPEED * dt;
+    const stepLength = robotSpeed() * dt;
 
     if (dist <= stepLength) {
       // 最后一步也要经过扫掠测试，不能直接赋值瞬移过去
@@ -668,7 +708,8 @@
     if (dir) {
       if (patrol.on) stopPatrol("已停止自动巡检：转手动控制。");
       actor.path.length = 0;
-      moving = nudge(dir.x * FREE_SPEED * dt, dir.y * FREE_SPEED * dt);
+      const sprint = robotSpeed() * dt;
+      moving = nudge(dir.x * sprint, dir.y * sprint);
     } else if (actor.path.length) {
       moving = followPath(dt);
     }
@@ -1554,6 +1595,8 @@
       els.mapMeta.textContent = mapMeta(currentState);
     }
     setFeedback("已进入巡检，点地图任意位置或按住方向键开始。", "");
+    // 开场选完机体才进入：这里必须按当前选择重画一次，立牌才会换成选中的那台
+    if (currentState) renderState(currentState);
     applyActorTransform();
     applyActorLook();
     startLoop();
@@ -1962,6 +2005,10 @@
       if (els.robotPreview && sprites.dog) {
         const preview = cloneSprite("dog");
         if (preview) els.robotPreview.append(preview);
+      }
+      if (els.roverPreview && sprites.rover) {
+        const preview = cloneSprite("rover");
+        if (preview) els.roverPreview.append(preview);
       }
       if (currentState) renderState(currentState);
     });

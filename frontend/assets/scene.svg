@@ -109,6 +109,31 @@
   </svg>
 
   <!-- 禁止通行牌：120×150，板面正对观众，两条支腿插在地上 -->
+
+  <!-- ==================== 轮式巡检车 rover ==================== -->
+  <svg id="rover" viewBox="0 0 160 120">
+    <ellipse class="rover-shadow" cx="80" cy="108" rx="46" ry="6" />
+    <g class="rover-wheel rover-wheel--rear">
+      <circle cx="58" cy="96" r="15" />
+      <circle class="wheel-hub" cx="58" cy="96" r="5" />
+      <path class="wheel-spoke" d="M58 83v26M45 96h26" />
+    </g>
+    <g class="rover-wheel rover-wheel--front">
+      <circle cx="110" cy="96" r="15" />
+      <circle class="wheel-hub" cx="110" cy="96" r="5" />
+      <path class="wheel-spoke" d="M110 83v26M97 96h26" />
+    </g>
+    <rect class="rover-body" x="40" y="62" width="86" height="24" rx="8" />
+    <rect class="rover-stripe" x="40" y="72" width="86" height="5" />
+    <rect class="rover-deck" x="52" y="50" width="52" height="14" rx="5" />
+    <rect class="rover-mast" x="94" y="26" width="7" height="28" rx="3" />
+    <rect class="rover-head" x="86" y="12" width="30" height="16" rx="6" />
+    <circle class="rover-eye" cx="112" cy="20" r="4" />
+    <circle class="rover-lidar" cx="96" cy="46" r="5" />
+    <path class="rover-antenna" d="M100 26l6-12" />
+    <circle class="rover-antenna-tip" cx="107" cy="13" r="3" />
+  </svg>
+
   <svg id="sign" viewBox="0 0 120 150" width="120" height="150">
     <g class="sign">
       <rect class="sign-leg" x="31" y="84" width="8" height="58" rx="4" />

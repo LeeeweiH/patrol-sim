@@ -31,6 +31,26 @@ SCENES: dict[str, dict] = {
     },
 }
 
+#: 机体目录。前端 frontend/app.js 的 ROBOTS 与这里一一对应，改一边要同步另一边。
+ROBOTS = [
+    {
+        "id": "go2",
+        "name": "机器狗 · Go2-lite",
+        "kind": "quadruped",
+        "radius": 0.26,
+        "speed": 2.6,
+        "note": "四足，转弯半径小，适合狭窄通道",
+    },
+    {
+        "id": "rover",
+        "name": "轮式巡检车 · Rover-1",
+        "kind": "wheeled",
+        "radius": 0.34,
+        "speed": 3.2,
+        "note": "轮式，直线更快，半径更大，贴边要留余量",
+    },
+]
+
 DEFAULT_SCENE = "standard"
 
 # 四个方向对应的坐标变化
