@@ -122,7 +122,7 @@
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
   const HEADING_FLIP = { right: 1, left: -1, up: 1, down: 1 };
 
-  const sprites = { dog: null, rover: null, sign: null, crate: null, "gate-in": null, "gate-out": null };
+  const sprites = { dog: null, rover: null, sign: null, crate: null };
 
   async function loadSprites() {
     try {
@@ -144,10 +144,6 @@
       sprites.sign = sign;
 
       // 入口出口缺失时不算致命错误：地图照常跑，只是少了两个地标
-      const gateIn = holder.querySelector("#gate-in");
-      const gateOut = holder.querySelector("#gate-out");
-      if (gateIn) sprites["gate-in"] = gateIn;
-      if (gateOut) sprites["gate-out"] = gateOut;
       sprites.crate = holder.querySelector("#crate");
       sprites.rover = holder.querySelector("#rover");
       document.body.append(holder);
@@ -1590,13 +1586,6 @@
   }
 
   /** 入口在左上角、出口在右下角，都只是地标——判定上和普通可通行格一样。 */
-  function gateAt(state, x, y) {
-    if (!state) return null;
-    const grid = state.grid;
-    if (x === 0 && y === 0) return "gate-in";
-    if (x === grid.width - 1 && y === grid.height - 1) return "gate-out";
-    return null;
-  }
 
   function makeCell(state, x, y) {
     const cell = document.createElement("div");
@@ -1630,21 +1619,20 @@
     }
 
     // 入口（左上）与出口（右下）：只是标记，不是障碍，谁都能踩上去
-    const gate = gateAt(state, x, y);
-    if (gate) {
-      cell.classList.add("cell--gate");
-      const door = makeBillboard(gate);
-      const sprite = cloneSprite(gate);
-      if (sprite) door.append(sprite);
-      cell.append(door);
-      label += "，" + (gate === "gate-in" ? "入口起点" : "出口终点");
-    }
 
     cell.setAttribute("aria-label", label);
     return cell;
   }
 
   /** 按后端状态整块重绘地图（8×8=64 格，直接重建比增量更新更好维护）。 */
+  /** 把服务端状态同步到本地 actor 上；换地图/重读都必须走这里，否则角色还停在旧坐标。 */
+  function applyStateToActor(state) {
+    actor.x = state.robot.x;
+    actor.y = state.robot.y;
+    actor.heading = state.robot.heading;
+    actor.cell = cellKey(state.robot.x, state.robot.y);
+  }
+
   function renderState(state, options) {
     const opts = options || {};
     const { width, height } = state.grid;
@@ -1772,10 +1760,7 @@
       currentState = state;
       const jumped = trackPosition(state, previous);
 
-      actor.x = state.robot.x;
-      actor.y = state.robot.y;
-      actor.heading = state.robot.heading;
-      actor.cell = cellKey(state.robot.x, state.robot.y);
+      applyStateToActor(state);
 
       renderState(state);
       setConnection("online", "服务在线");
@@ -1835,9 +1820,10 @@
   }
 
   async function beginRun() {
-    // 换地图要先让后端切场景，切失败就别进，免得跑到一半发现地图对不上
-    const wanted = selection.map;
-    if (wanted && wanted !== currentSceneId) {
+    // 每次开场都让后端把场景重设一遍：既处理换地图，也把机器人放回起点
+    // （只换机体、地图没变时同样要重置，否则会从上一次停下的位置继续）
+    const wanted = selection.map || currentSceneId;
+    if (wanted) {
       try {
         const state = await requestJSON("/api/scene", {
           method: "POST",
@@ -1847,10 +1833,25 @@
         validateState(state);
         currentState = state;
         currentSceneId = state.scene ? state.scene.id : wanted;
+        // 换了地图就是新的一轮：步数、痕迹、轨迹、扫描全清，角色回到新图的起点
+        steps = 0;
+        trail = new Set();
+        trackPoints = [];
+        scanned = new Set();
+        lastGridDims = "";
+        patrol.lastSummary = null;
+        if (patrolReportBtn) patrolReportBtn.hidden = true;
+        applyStateToActor(state);
         renderState(state);
+        applyActorTransform();
+        applyActorLook();
+        layoutOverlays();
       } catch (error) {
-        setFeedback("切换地图失败：" + describeError(error), "warn");
-        return;
+        // 后端连不上时不清空本地状态，用上一次读到的地图先进入，至少不会白屏
+        if (!currentState) {
+          setFeedback("进入场景失败：" + describeError(error), "warn");
+          return;
+        }
       }
     }
 

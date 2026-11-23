@@ -1508,56 +1508,14 @@ kbd {
 }
 /* ---------------- 入口 / 出口（可通行地标） ---------------- */
 
-.cell--gate {
-  border-color: #c9d3da;
-}
 
-.billboard--gate-in .sprite,
-.billboard--gate-out .sprite {
-  width: calc(var(--cell-px, 64px) * 0.86);
-  height: auto;
-  filter: drop-shadow(0 4px 6px rgba(18, 28, 36, 0.3));
-}
 
-.billboard--gate-in .sprite {
-  color: #c2521f;
-}
 
-.billboard--gate-out .sprite {
-  color: #1d6f7a;
-}
 
-.sprite .gate-frame {
-  fill: #1b242c;
-  stroke: currentColor;
-  stroke-width: 5;
-}
 
-.sprite .gate-inner {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  opacity: 0.45;
-}
 
-.sprite .gate-arrow {
-  fill: currentColor;
-  opacity: 0.92;
-}
 
-.sprite .gate-leg {
-  fill: #3d4a54;
-}
 
-.sprite .gate-glow {
-  fill: currentColor;
-  opacity: 0.16;
-}
-.swatch-gate {
-  background: linear-gradient(135deg, #c2521f 0 48%, #1d6f7a 52% 100%);
-  color: #fff;
-  font-size: 10px;
-}
 
 /* 自动巡检按钮 */
 .patrol-btn {
