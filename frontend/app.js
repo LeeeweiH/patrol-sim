@@ -1645,6 +1645,14 @@
   }
 
   /** 按后端状态整块重绘地图（8×8=64 格，直接重建比增量更新更好维护）。 */
+  /** 把服务端状态同步到本地 actor 上；换地图/重读都必须走这里，否则角色还停在旧坐标。 */
+  function applyStateToActor(state) {
+    actor.x = state.robot.x;
+    actor.y = state.robot.y;
+    actor.heading = state.robot.heading;
+    actor.cell = cellKey(state.robot.x, state.robot.y);
+  }
+
   function renderState(state, options) {
     const opts = options || {};
     const { width, height } = state.grid;
@@ -1772,10 +1780,7 @@
       currentState = state;
       const jumped = trackPosition(state, previous);
 
-      actor.x = state.robot.x;
-      actor.y = state.robot.y;
-      actor.heading = state.robot.heading;
-      actor.cell = cellKey(state.robot.x, state.robot.y);
+      applyStateToActor(state);
 
       renderState(state);
       setConnection("online", "服务在线");
@@ -1847,7 +1852,19 @@
         validateState(state);
         currentState = state;
         currentSceneId = state.scene ? state.scene.id : wanted;
+        // 换了地图就是新的一轮：步数、痕迹、轨迹、扫描全清，角色回到新图的起点
+        steps = 0;
+        trail = new Set();
+        trackPoints = [];
+        scanned = new Set();
+        lastGridDims = "";
+        patrol.lastSummary = null;
+        if (patrolReportBtn) patrolReportBtn.hidden = true;
+        applyStateToActor(state);
         renderState(state);
+        applyActorTransform();
+        applyActorLook();
+        layoutOverlays();
       } catch (error) {
         setFeedback("切换地图失败：" + describeError(error), "warn");
         return;
