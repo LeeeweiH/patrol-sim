@@ -2130,9 +2130,39 @@
 
     // 点地图：自由模式下走过去
     // 地图上按住就能走：按下立刻出发，按住拖动时换成指针下面的那个格子
+    // 命中格子：先按元素找，找不到就在几像素内绕一圈再找，最后退回「最近的格心」。
+    // 斜俯视下格子是平行四边形、格子之间还有 4px 缝，直接 elementFromPoint
+    // 经常落在 .board 或轴上，用户就会觉得「点了没反应」。
     const cellUnder = (clientX, clientY) => {
-      const el = document.elementFromPoint(clientX, clientY);
-      return el && el.closest ? el.closest(".cell") : null;
+      const direct = document.elementFromPoint(clientX, clientY);
+      const hit = direct && direct.closest ? direct.closest(".cell") : null;
+      if (hit && hit.dataset.x) return hit;
+
+      const RING = [3, 6, 10];
+      for (const radius of RING) {
+        for (let i = 0; i < 8; i += 1) {
+          const angle = (Math.PI * 2 * i) / 8;
+          const el = document.elementFromPoint(
+            clientX + Math.cos(angle) * radius,
+            clientY + Math.sin(angle) * radius
+          );
+          const cell = el && el.closest ? el.closest(".cell") : null;
+          if (cell && cell.dataset.x) return cell;
+        }
+      }
+
+      let best = null;
+      let bestDist = 48;
+      els.board.querySelectorAll(".cell").forEach((cell) => {
+        if (!cell.dataset.x) return;
+        const rect = cell.getBoundingClientRect();
+        const d = Math.hypot(rect.left + rect.width / 2 - clientX, rect.top + rect.height / 2 - clientY);
+        if (d < bestDist) {
+          bestDist = d;
+          best = cell;
+        }
+      });
+      return best;
     };
 
     const pointIn = (cell, clientX, clientY) => {
@@ -2154,7 +2184,7 @@
       // 松手时浏览器把这次点击吃掉，看起来就是「按了没反应」。
       event.preventDefault();
       if (!started || !currentState) return;
-      const point = pointIn(event.target.closest ? event.target.closest(".cell") : null, event.clientX, event.clientY);
+      const point = pointIn(cellUnder(event.clientX, event.clientY), event.clientX, event.clientY);
       if (!point) return;
       pressPoint = point;
       try {
