@@ -1952,32 +1952,50 @@ kbd {
 
 
 
-/* 点击回执：目标格上闪一圈橙环，让人立刻知道「这次点到了」 */
-.tap-ripple {
+/* 点击回执：目标格上落下一个朝下的箭头（挂在格子内部，跟着 3D 一起转） */
+.cell.is-tapped::after {
+  content: "";
   position: absolute;
-  transform: translate(-50%, -50%) rotateX(calc(-1 * var(--tilt)));
-  transform-origin: 50% 50%;
-  border: 2px solid var(--robot);
-  border-radius: 10px;
-  box-shadow: 0 0 0 6px rgba(236, 106, 36, 0.16);
+  left: 50%;
+  top: 50%;
+  width: 34%;
+  height: 42%;
+  margin-left: -17%;
+  margin-top: -21%;
+  background: var(--robot);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  filter: drop-shadow(0 2px 3px rgba(20, 32, 42, 0.3));
+  z-index: 6;
   pointer-events: none;
-  z-index: 5;
-  animation: tap-ripple 420ms ease-out forwards;
+  animation: tap-drop 620ms cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
 }
 
-@keyframes tap-ripple {
+/* 只做「落下来 + 轻微回弹」，不做淡出——消失交给 620ms 后摘类，
+   这样即使动画被系统降级或暂停，箭头也仍然看得见 */
+@keyframes tap-drop {
   0% {
-    opacity: 0.9;
-    scale: 0.74;
+    opacity: 0;
+    transform: translateY(-120%) scale(1.25);
+  }
+  26% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  74% {
+    transform: translateY(-9%) scale(1);
   }
   100% {
-    opacity: 0;
-    scale: 1.16;
+    opacity: 1;
+    transform: translateY(4%) scale(0.96);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tap-ripple {
-    animation-duration: 120ms;
+  .cell.is-tapped::after {
+    animation-duration: 200ms;
   }
+}
 }

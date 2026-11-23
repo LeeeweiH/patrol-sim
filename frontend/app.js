@@ -942,18 +942,15 @@
   let pressPoint = null;
 
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
-  /** 点下去立刻给个回执：目标格中心闪一圈橙环，200ms 后自动摘掉。 */
+  /** 点下去立刻给个回执：目标格自己闪一个朝下的箭头，落定后淡出。
+   *  直接挂在格子上，省掉坐标换算——格子本身在 3D 里，箭头跟着它走就不会偏。 */
   function flashTarget(cellX, cellY) {
-    const metrics = currentState ? gridMetrics() : null;
-    if (!metrics) return;
-    const ring = document.createElement("span");
-    ring.className = "tap-ripple";
-    ring.style.left = metrics.originX + cellX * metrics.step + "px";
-    ring.style.top = metrics.originY + cellY * metrics.step + "px";
-    ring.style.width = metrics.cellPx + "px";
-    ring.style.height = metrics.cellPx + "px";
-    els.board.append(ring);
-    window.setTimeout(() => ring.remove(), 420);
+    const cell = els.board.querySelector('.cell[data-x="' + cellX + '"][data-y="' + cellY + '"]');
+    if (!cell) return;
+    cell.classList.remove("is-tapped");
+    void cell.offsetWidth; // 连续点同一格也能重播动画
+    cell.classList.add("is-tapped");
+    window.setTimeout(() => cell.classList.remove("is-tapped"), 620);
   }
 
   function walkTo(cellX, cellY, offsetX, offsetY, options) {
