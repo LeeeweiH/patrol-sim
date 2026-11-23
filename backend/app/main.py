@@ -19,12 +19,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.sim import (
     DEFAULT_SCENE,
+    ROBOTS,
     SCENES,
     Blocked,
     InvalidDirection,
     InvalidScene,
     OutOfBounds,
-    ROBOTS,
     Simulation,
 )
 
