@@ -1372,9 +1372,11 @@
     defs.append(clip);
     const group = document.createElementNS(ns, "g");
     group.setAttribute("clip-path", "url(#scan-clip)");
-    const path = document.createElementNS(ns, "path");
-    const ring = document.createElementNS(ns, "circle");
-    group.append(ring, path);
+    const rays = document.createElementNS(ns, "path");
+    rays.setAttribute("class", "rays");
+    const ring = document.createElementNS(ns, "path");
+    ring.setAttribute("class", "ring");
+    group.append(ring, rays);
     svg.append(defs, group);
     els.board.append(svg);
     scanLayer = svg;
@@ -1421,13 +1423,6 @@
 
     const cx = metrics.originX + actor.x * metrics.step;
     const cy = metrics.originY + actor.y * metrics.step;
-    const radius = SCAN_RANGE * metrics.step;
-
-    const ring = svg.querySelector("circle");
-    ring.setAttribute("cx", String(cx));
-    ring.setAttribute("cy", String(cy));
-    ring.setAttribute("r", String(radius));
-
     // 1) 逐格判定「看得到」：先算格心距离，再沿视线做亚格采样判断有没有被牌子挡住。
     //    这样做比「沿射线累加格子」稳定：不会因为射线数量/步长出现漏格或锯齿。
     const visible = new Set();
@@ -1478,28 +1473,31 @@
       scanFresh = true;
     }
 
-    // 2) 画射线：只负责「看起来像雷达」，按角度前进，撞牌子或出界就停
-    const segs = [];
+    // 2) 每个方向的最大可见距离：撞牌子或出界就停，最多到量程。
+    //    同一组距离既画射线、也画量程轮廓——所以遇到障碍时轮廓会凹进去，不再是个正圆。
     const stepLen = 0.08;
-    const maxR = Math.min(SCAN_RANGE, Math.max(width, height));
+    const segs = [];
+    const ringPts = [];
     for (let i = 0; i < SCAN_RAYS; i += 1) {
       const angle = (Math.PI * 2 * i) / SCAN_RAYS;
       const dx = Math.cos(angle);
       const dy = Math.sin(angle);
       let dist = 0;
-      const limit = maxR + 0.5;
-      while (dist < limit) {
-        dist += stepLen;
-        const px = actor.x + dx * dist;
-        const py = actor.y + dy * dist;
+      while (dist < SCAN_RANGE) {
+        const next = Math.min(dist + stepLen, SCAN_RANGE);
+        const px = actor.x + dx * next;
+        const py = actor.y + dy * next;
         if (px < -0.5 || py < -0.5 || px > width - 0.5 || py > height - 0.5) break;
         if (blocked.has(Math.round(px) + "," + Math.round(py))) break;
+        dist = next;
       }
       const ex = cx + dx * dist * metrics.step;
       const ey = cy + dy * dist * metrics.step;
       segs.push("M" + cx.toFixed(1) + " " + cy.toFixed(1) + "L" + ex.toFixed(1) + " " + ey.toFixed(1));
+      ringPts.push(ex.toFixed(1) + " " + ey.toFixed(1));
     }
-    svg.querySelector("path").setAttribute("d", segs.join(" "));
+    svg.querySelector("path.rays").setAttribute("d", segs.join(" "));
+    svg.querySelector("path.ring").setAttribute("d", "M" + ringPts.join("L") + "Z");
 
     // 3) 每次都重刷类名：盲区随位置变化，不能等「有新格子」才更新，
     //    否则站着不动或走进旧区域时，斜纹会停在上一帧的位置。
@@ -2166,7 +2164,8 @@
     });
 
     els.board.addEventListener("pointermove", (event) => {
-      if (!pressPoint) return;
+      // 鼠标只是滑过去（没按住）时不要改目标；松开在画布外时 buttons 也会归零
+      if (!pressPoint || event.buttons === 0) return;
       // 用元素命中判断：被 capture 到 board 上的事件 target 不再是格子
       const cell = cellUnder(event.clientX, event.clientY);
       if (!cell || !cell.dataset.x) return;
@@ -2182,6 +2181,12 @@
     };
     els.board.addEventListener("pointerup", endPress);
     els.board.addEventListener("pointercancel", endPress);
+    els.board.addEventListener("pointerleave", (event) => {
+      if (event.buttons === 0) endPress();
+    });
+    // 松开发生在画布外（比如拖到右栏再放手）时，board 收不到 pointerup，这里兜底
+    window.addEventListener("pointerup", endPress);
+    window.addEventListener("pointercancel", endPress);
     els.reload.addEventListener("click", () => {
       // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
       steps = 0;

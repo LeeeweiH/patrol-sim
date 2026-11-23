@@ -1647,21 +1647,22 @@ kbd {
   opacity: 1;
 }
 
-.scan path {
+.scan .rays {
   fill: none;
   stroke: rgba(29, 111, 122, 0.34);
   stroke-width: 1.1;
   stroke-linecap: round;
 }
 
-.scan circle {
+.scan .ring {
   fill: rgba(29, 111, 122, 0.05);
   stroke: rgba(29, 111, 122, 0.32);
   stroke-width: 1;
   stroke-dasharray: 5 5;
+  stroke-linejoin: round;
 }
 
-.scan.is-pulse path {
+.scan.is-pulse .rays {
   animation: scan-pulse 520ms ease-out;
 }
 
