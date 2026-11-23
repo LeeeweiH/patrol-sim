@@ -1820,9 +1820,10 @@
   }
 
   async function beginRun() {
-    // 换地图要先让后端切场景，切失败就别进，免得跑到一半发现地图对不上
-    const wanted = selection.map;
-    if (wanted && wanted !== currentSceneId) {
+    // 每次开场都让后端把场景重设一遍：既处理换地图，也把机器人放回起点
+    // （只换机体、地图没变时同样要重置，否则会从上一次停下的位置继续）
+    const wanted = selection.map || currentSceneId;
+    if (wanted) {
       try {
         const state = await requestJSON("/api/scene", {
           method: "POST",
@@ -1846,8 +1847,11 @@
         applyActorLook();
         layoutOverlays();
       } catch (error) {
-        setFeedback("切换地图失败：" + describeError(error), "warn");
-        return;
+        // 后端连不上时不清空本地状态，用上一次读到的地图先进入，至少不会白屏
+        if (!currentState) {
+          setFeedback("进入场景失败：" + describeError(error), "warn");
+          return;
+        }
       }
     }
 
