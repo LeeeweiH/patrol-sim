@@ -2149,11 +2149,13 @@
     };
 
     els.board.addEventListener("pointerdown", (event) => {
-      if (!started || mode !== "free" || !currentState) return;
       if (event.button > 0) return;
+      // 先挡住默认行为：不然按在轴标签/立牌/格子缝隙上会开始「拖选文字」，
+      // 松手时浏览器把这次点击吃掉，看起来就是「按了没反应」。
+      event.preventDefault();
+      if (!started || !currentState) return;
       const point = pointIn(event.target.closest ? event.target.closest(".cell") : null, event.clientX, event.clientY);
       if (!point) return;
-      event.preventDefault();
       pressPoint = point;
       try {
         els.board.setPointerCapture(event.pointerId);
@@ -2166,6 +2168,7 @@
     els.board.addEventListener("pointermove", (event) => {
       // 鼠标只是滑过去（没按住）时不要改目标；松开在画布外时 buttons 也会归零
       if (!pressPoint || event.buttons === 0) return;
+      event.preventDefault();
       // 用元素命中判断：被 capture 到 board 上的事件 target 不再是格子
       const cell = cellUnder(event.clientX, event.clientY);
       if (!cell || !cell.dataset.x) return;

@@ -363,6 +363,8 @@ body {
 }
 
 .cell {
+  -webkit-user-select: none;
+  user-select: none;
   position: relative;
   display: flex;
   align-items: center;
@@ -1915,4 +1917,20 @@ kbd {
   font-variant-numeric: tabular-nums;
   color: var(--copper, #c2521f);
   font-weight: 600;
+}
+
+/* 地图是拖拽操作区：整块不参与文字选择，避免拖出一片蓝色选中区 */
+.stage,
+.board,
+.axis,
+.billboard,
+.scan,
+.trace {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 牌子格确实按不动，光标明说 */
+.cell--block {
+  cursor: not-allowed;
 }
