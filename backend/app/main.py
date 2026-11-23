@@ -10,13 +10,23 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.sim import Blocked, InvalidDirection, OutOfBounds, Simulation
+from app.sim import (
+    DEFAULT_SCENE,
+    ROBOTS,
+    SCENES,
+    Blocked,
+    InvalidDirection,
+    InvalidScene,
+    OutOfBounds,
+    Simulation,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,9 +38,18 @@ LOGGER = logging.getLogger("patrol")
 SIM = Simulation()
 
 
+# ---- 巡检报告留档（内存，最多留 50 条） --------------------------------------
+REPORTS: list[dict] = []
+REPORT_LIMIT = 50
+REPORT_SEQ = 0
+
+
 def reset_state() -> None:
-    """把机器人放回起点，测试用。"""
-    SIM.reset()
+    """把场景、机器人和报告一起复位，测试用。"""
+    global REPORT_SEQ
+    SIM.set_scene(DEFAULT_SCENE)
+    REPORTS.clear()
+    REPORT_SEQ = 0
 
 
 # ---- 运行时配置 --------------------------------------------------------------
@@ -67,6 +86,48 @@ def create_app() -> FastAPI:
     def get_state() -> dict:
         return build_state()
 
+    @app.get("/api/scenes")
+    def list_scenes() -> dict:
+        """可选场景列表，前端开场选择器用。"""
+        return {
+            "current": SIM.scene_id,
+            "scenes": [
+                {
+                    "id": scene_id,
+                    "name": scene["name"],
+                    "width": scene["width"],
+                    "height": scene["height"],
+                    "obstacles": [list(item) for item in sorted(scene["obstacles"])],
+                }
+                for scene_id, scene in SCENES.items()
+            ],
+        }
+
+    @app.post("/api/scene")
+    async def select_scene(request: Request):
+        """切换场景，成功后返回新场景的完整状态。"""
+        try:
+            payload = await request.json()
+        except Exception:
+            return error(400, "invalid_json", "请求体必须是合法的 JSON")
+
+        scene_id = payload.get("id") if isinstance(payload, dict) else None
+        if not isinstance(scene_id, str):
+            return error(400, "invalid_scene", "id 必须是场景标识")
+        try:
+            state = SIM.set_scene(scene_id)
+        except InvalidScene:
+            known = "、".join(SCENES.keys())
+            return error(400, "invalid_scene", f"未知场景，可选：{known}")
+
+        LOGGER.info("scene -> %s", scene_id)
+        return state
+
+    @app.get("/api/robots")
+    def list_robots() -> dict:
+        """可用机体列表；半径与速度供前端做碰撞判定和移动换算。"""
+        return {"robots": ROBOTS}
+
     @app.post("/api/move")
     async def move(request: Request):
         try:
@@ -93,6 +154,49 @@ def create_app() -> FastAPI:
             state["robot"]["y"],
         )
         return state
+
+    @app.post("/api/report")
+    async def save_report(request: Request):
+        global REPORT_SEQ
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return error(400, "invalid_json", "请求体必须是合法的 JSON")
+        if not isinstance(payload, dict):
+            return error(400, "invalid_report", "报告内容必须是 JSON 对象")
+
+        scene_id = payload.get("scene")
+        if scene_id not in SCENES:
+            known = "、".join(SCENES)
+            return error(400, "invalid_report", f"未知的地图 id：{scene_id}，可选值：{known}")
+
+        numbers: dict[str, float | int] = {}
+        for key in ("points", "seconds", "steps", "visited"):
+            value = payload.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                return error(400, "invalid_report", f"{key} 必须是非负数字")
+            numbers[key] = round(float(value), 1) if key == "seconds" else int(value)
+
+        REPORT_SEQ += 1
+        record = {
+            "id": REPORT_SEQ,
+            "received_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "scene": scene_id,
+            "scene_name": SCENES[scene_id]["name"],
+            **numbers,
+        }
+        REPORTS.append(record)
+        if len(REPORTS) > REPORT_LIMIT:
+            del REPORTS[0]
+
+        LOGGER.info("报告入库 #%s（%s）", record["id"], scene_id)
+        return {"saved": True, "count": len(REPORTS), "report": record}
+
+    @app.get("/api/reports")
+    def list_reports(limit: int = 10) -> dict:
+        size = max(1, min(limit, REPORT_LIMIT))
+        return {"count": len(REPORTS), "limit": size, "reports": REPORTS[-size:][::-1]}
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:

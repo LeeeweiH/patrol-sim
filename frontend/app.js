@@ -3,11 +3,6 @@
  *
  * 两套操控方式，共用同一张地图和同一台机器人：
  *
- * - 格点移动（grid）：只认服务端。点方向键 → POST /api/move → 用响应里的完整状态重绘，
- *   前端不预测位置。这是与后端契约（docs/03_项目架构与接口.md）一致的演示路径。
- * - 自由移动（free）：页面内的连续运动模拟。点地图任意位置就走过去（A* 绕开障碍），
- *   按 WASD/方向键则持续移动；障碍按正方形碰撞体处理，机器人是圆形，可以贴边滑行。
- *   这条路径不写服务端，切回格点模式时以服务端状态为准。
  *
  * 失败语义两套模式一样：4xx 是明确拒绝（位置不变），超时/网络/5xx 是结果未确认（提示重新读取，不自动重发）。
  */
@@ -20,8 +15,23 @@
   const STATUS_TEXT = { idle: "待命", moving: "移动中" };
 
   /** 自由移动的行走速度（格/秒）与机器人碰撞半径（格）。 */
-  const FREE_SPEED = 2.6;
-  const ROBOT_RADIUS = 0.26;
+  /** 机体目录：半径与速度跟后端 /api/robots 一致，改这里记得同步 sim.py。 */
+  const ROBOTS = {
+    go2: { sprite: "dog", radius: 0.26, speed: 3.2, label: "机器狗" },
+    rover: { sprite: "rover", radius: 0.34, speed: 3.8, label: "轮式巡检车" },
+  };
+
+  function robotSpec() {
+    return ROBOTS[selection.robot] || ROBOTS.go2;
+  }
+
+  function robotRadius() {
+    return robotSpec().radius;
+  }
+
+  function robotSpeed() {
+    return robotSpec().speed;
+  }
 
   /** 带 code 的请求错误，便于按错误类型分支处理。 */
   class ApiError extends Error {
@@ -59,11 +69,19 @@
     stickBase: document.getElementById("stick-base"),
     stickKnob: document.getElementById("stick-knob"),
     stickToggle: document.getElementById("stick-toggle"),
-    modeBtns: Array.from(document.querySelectorAll(".mode-btn")),
+    sensorToggle: document.getElementById("sensor-toggle"),
+    traceToggle: document.getElementById("trace-toggle"),
+    reportsOpen: document.getElementById("reports-open"),
+    reportsSheet: document.getElementById("reports-sheet"),
+    reportsClose: document.getElementById("reports-close"),
+    reportsBody: document.getElementById("reports-body"),
+    reportsHint: document.getElementById("reports-hint"),
+    factScanned: document.getElementById("fact-scanned"),
     openScene: document.getElementById("open-scene"),
     start: document.getElementById("start"),
     startGo: document.getElementById("start-go"),
     robotPreview: document.getElementById("robot-preview"),
+    roverPreview: document.getElementById("rover-preview"),
     picks: Array.from(document.querySelectorAll(".pick[data-pick]")),
   };
 
@@ -77,11 +95,19 @@
    */
   let steps = 0;
   let trail = new Set();
+  let trackPoints = [];
+  let traceOn = true;
+  let traceLayer = null;
+  let tracePath = null;
 
   /** 开场选择：现在各只有一个选项，但结构按「以后会加」来写。 */
-  const selection = { map: "grid8", robot: "go2" };
+  const selection = { map: "standard", robot: "go2" };
+  // 后端当前场景 id，切地图时用它判断要不要发 /api/scene
+  let currentSceneId = "standard";
   let started = false;
-  let mode = "free"; // free | grid
+  // 只保留自由移动（格点移动已移除）。这里仍是常量而不是删掉变量：
+  // 少数旧分支用 mode 做守卫，留着可以保证它们永远不可达，也方便以后加别的模式。
+  const mode = "free";
 
   /* ---------------------------------------------------------------- 模型 */
 
@@ -96,7 +122,7 @@
   const HEADING_TURN = { right: 0, left: 0, up: -38, down: 38 };
   const HEADING_FLIP = { right: 1, left: -1, up: 1, down: 1 };
 
-  const sprites = { dog: null, sign: null, crate: null, "gate-in": null, "gate-out": null };
+  const sprites = { dog: null, rover: null, sign: null, crate: null, "gate-in": null, "gate-out": null };
 
   async function loadSprites() {
     try {
@@ -123,6 +149,7 @@
       if (gateIn) sprites["gate-in"] = gateIn;
       if (gateOut) sprites["gate-out"] = gateOut;
       sprites.crate = holder.querySelector("#crate");
+      sprites.rover = holder.querySelector("#rover");
       document.body.append(holder);
       return true;
     } catch (error) {
@@ -318,7 +345,28 @@
 
   /** 把角色立到地图上；重绘地图后节点会被清掉，所以每次重绘都要重新装配。 */
   function ensureActor() {
-    if (actor.node) return actor.node;
+    // 重绘地图会把角色节点从 DOM 里摘掉，但引用还在；这里必须判 isConnected，
+    // 否则换机体之后拿到的还是上一次那个（比如一直是机器狗）。
+    const kind = robotSpec().sprite;
+    if (actor.node && actor.node.isConnected) {
+      // 换了机体但地图没重绘：就地换掉立牌里的精灵和主题类
+      if (actor.kind === kind) return actor.node;
+      const billboard = actor.node.querySelector(".billboard");
+      const stale = billboard && billboard.querySelector(".sprite");
+      const fresh = cloneSprite(kind);
+      if (billboard && stale && fresh) {
+        stale.replaceWith(fresh);
+        billboard.classList.remove("billboard--dog", "billboard--rover");
+        billboard.classList.add("billboard--" + kind);
+        actor.sprite = fresh;
+        actor.kind = kind;
+      }
+      return actor.node;
+    }
+    actor.node = null;
+    actor.sprite = null;
+    actor.facing = null;
+    actor.tag = null;
 
     const node = document.createElement("div");
     node.className = "actor";
@@ -334,8 +382,8 @@
     ground.append(halo, facing);
 
     // 立牌层：反向转回竖直，里面就是屏幕坐标
-    const billboard = makeBillboard("dog");
-    const sprite = cloneSprite("dog");
+    const billboard = makeBillboard(robotSpec().sprite);
+    const sprite = cloneSprite(robotSpec().sprite);
     if (sprite) billboard.append(sprite);
     const tag = document.createElement("span");
     tag.className = "unit-tag";
@@ -346,6 +394,7 @@
     els.board.append(node);
 
     actor.node = node;
+    actor.kind = kind;
     actor.sprite = sprite;
     actor.facing = facing;
     actor.tag = tag;
@@ -398,7 +447,8 @@
       const ny = Math.max(by - 0.5, Math.min(y, by + 0.5));
       const dx = x - nx;
       const dy = y - ny;
-      if (dx * dx + dy * dy < ROBOT_RADIUS * ROBOT_RADIUS) return true;
+      const radius = robotRadius();
+      if (dx * dx + dy * dy < radius * radius) return true;
     }
     return false;
   }
@@ -508,7 +558,7 @@
   function blockedAlong(ax, ay, bx, by) {
     if (!currentState) return true;
     const grid = currentState.grid;
-    const r = ROBOT_RADIUS;
+    const r = robotRadius();
 
     if (Math.min(ax, bx) < 0 || Math.max(ax, bx) > grid.width - 1) return true;
     if (Math.min(ay, by) < 0 || Math.max(ay, by) > grid.height - 1) return true;
@@ -630,7 +680,7 @@
     const dx = next.x - actor.x;
     const dy = next.y - actor.y;
     const dist = Math.hypot(dx, dy);
-    const stepLength = FREE_SPEED * dt;
+    const stepLength = robotSpeed() * dt;
 
     if (dist <= stepLength) {
       // 最后一步也要经过扫掠测试，不能直接赋值瞬移过去
@@ -652,6 +702,62 @@
     }
   }
 
+  // 自由模式下角色每帧都在动，但 updateScan/paintTrack 原本只在 renderState 里跑，
+  // 于是雷达扇形和轨迹会「停在上一帧」。这里按 90ms 或换格时补刷一次，既跟手又不掉帧。
+  let lastScanPaint = 0;
+  let lastScanCell = "";
+  /**
+   * 导图层的尺寸只在这里统一算：resize / 全屏切换 / 右栏折叠后，
+   * 扫描扇形和轨迹线都会跟着重算一遍，不会出现「放大后消失、点一下才回来」。
+   */
+  let lastBoardW = 0;
+  let lastBoardH = 0;
+
+  function layoutOverlays() {
+    if (!els.board) return;
+    const width = els.board.clientWidth;
+    const height = els.board.clientHeight;
+    if (!width || !height) return;
+    const box = "0 0 " + width + " " + height;
+    [scanLayerElement(), traceLayerElement()].forEach((svg) => {
+      if (!svg) return;
+      svg.setAttribute("viewBox", box);
+      svg.setAttribute("width", String(width));
+      svg.setAttribute("height", String(height));
+      svg.setAttribute("preserveAspectRatio", "none");
+    });
+    // 尺寸变了，角色的像素坐标也得按新格宽重算，否则会出现「格子变了、狗还站在老地方」
+    if (actor.node) {
+      applyActorTransform();
+      applyActorLook();
+    }
+    updateScan();
+    paintTrack();
+    paintTrail();
+  }
+
+  function refreshOverlays(timestamp, force) {
+    // 兜底自检：浏览器偶尔不发 resize（iframe 内嵌、某些全屏切换），
+    // 只靠事件会让导图层停在旧尺寸上——这里每帧比一次尺寸，变了就重排。
+    if (els.board) {
+      const bw = els.board.clientWidth;
+      const bh = els.board.clientHeight;
+      if (bw && bh && (bw !== lastBoardW || bh !== lastBoardH)) {
+        lastBoardW = bw;
+        lastBoardH = bh;
+        layoutOverlays();
+        lastScanPaint = timestamp || 0;
+        return;
+      }
+    }
+    const cell = Math.round(actor.x) + "," + Math.round(actor.y);
+    if (!force && cell === lastScanCell && timestamp - lastScanPaint < 90) return;
+    lastScanCell = cell;
+    lastScanPaint = timestamp || 0;
+    updateScan();
+    paintTrack();
+  }
+
   function frame(timestamp) {
     rafId = window.requestAnimationFrame(frame);
     const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.06) : 0;
@@ -662,8 +768,10 @@
     let moving = false;
     const dir = heldVector();
     if (dir) {
+      if (patrol.on) stopPatrol("已停止自动巡检：转手动控制。");
       actor.path.length = 0;
-      moving = nudge(dir.x * FREE_SPEED * dt, dir.y * FREE_SPEED * dt);
+      const sprint = robotSpeed() * dt;
+      moving = nudge(dir.x * sprint, dir.y * sprint);
     } else if (actor.path.length) {
       moving = followPath(dt);
     }
@@ -679,15 +787,26 @@
       applyActorTransform();
       applyActorLook();
       updateFacts();
-      setFeedback("已到达 (" + actor.x.toFixed(1) + ", " + actor.y.toFixed(1) + ")。", "success");
+      refreshOverlays(timestamp, true);
+      const arrived = "(" + actor.x.toFixed(1) + ", " + actor.y.toFixed(1) + ")";
+      if (patrol.on) {
+        setFeedback("巡检中 " + patrol.done + "/" + patrol.total + "：已到 " + arrived, "success");
+      } else {
+        setFeedback("已到达 " + arrived + "。", "success");
+      }
       actor.target = null;
     }
+
+    // 自动巡检：静止且没有目标时，取下一个点位
+    if (patrol.on && !moving && !actor.target) patrolNext();
 
     if (moving) {
       applyActorTransform();
       applyActorLook();
       recordTrail();
+      pushTrackPoint(actor.x, actor.y);
       updateFacts();
+      refreshOverlays(timestamp);
     }
   }
 
@@ -730,6 +849,78 @@
     });
   }
 
+  /** 轨迹采样点：同一处不重复记，太长就丢最早的点。 */
+  function pushTrackPoint(x, y) {
+    const last = trackPoints[trackPoints.length - 1];
+    // 切地图 / 重新读取 / 任何瞬移都会让相邻两点隔很远，直接连起来就是一条横跨全图的假线，
+    // 所以超过 3 格就当作新的一段轨迹重新开始。
+    if (last && Math.hypot(x - last.x, y - last.y) > 3) trackPoints = [];
+    if (last && Math.abs(last.x - x) < 0.02 && Math.abs(last.y - y) < 0.02) return;
+    trackPoints.push({ x: x, y: y });
+    if (trackPoints.length > 2400) trackPoints.shift();
+    paintTrack();
+  }
+
+  /** 轨迹线画在地图坐标系里，跟平面一起倾斜，所以看起来是贴着地面的折线。 */
+  function traceLayerElement() {
+    if (traceLayer && traceLayer.isConnected) return traceLayer;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "trace");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.append(path);
+    els.board.append(svg);
+    traceLayer = svg;
+    tracePath = path;
+    return svg;
+  }
+
+  function paintTrack() {
+    if (!els.board) return;
+    const svg = traceLayerElement();
+    const metrics = currentState ? gridMetrics() : null;
+    if (!metrics) return;
+    svg.setAttribute("viewBox", "0 0 " + els.board.clientWidth + " " + els.board.clientHeight);
+    const enough = trackPoints.length > 1;
+    svg.classList.toggle("is-on", traceOn && enough);
+    if (!traceOn || !enough) {
+      tracePath.setAttribute("d", "");
+      return;
+    }
+    let d = "";
+    for (let i = 0; i < trackPoints.length; i += 1) {
+      const pt = trackPoints[i];
+      const px = metrics.originX + pt.x * metrics.step;
+      const py = metrics.originY + pt.y * metrics.step;
+      d += (i === 0 ? "M" : "L") + px.toFixed(1) + " " + py.toFixed(1);
+    }
+    tracePath.setAttribute("d", d);
+  }
+
+  function setTrace(on) {
+    traceOn = Boolean(on);
+    try {
+      window.localStorage.setItem("patrol.trace", traceOn ? "1" : "0");
+    } catch (err) {
+      /* 隐私模式写不了 localStorage，忽略 */
+    }
+    if (els.traceToggle) {
+      els.traceToggle.setAttribute("aria-checked", traceOn ? "true" : "false");
+      els.traceToggle.classList.toggle("is-on", traceOn);
+    }
+    paintTrack();
+  }
+
+  function restoreTrace() {
+    let saved = null;
+    try {
+      saved = window.localStorage.getItem("patrol.trace");
+    } catch (err) {
+      saved = null;
+    }
+    setTrace(saved === null ? true : saved === "1");
+  }
+
   function cellAt(x, y) {
     return els.board.querySelector('.cell[data-x="' + x + '"][data-y="' + y + '"]');
   }
@@ -751,8 +942,28 @@
   let pressPoint = null;
 
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
-  function walkTo(cellX, cellY, offsetX, offsetY) {
+  /** 点下去立刻给个回执：目标格自己闪一个朝下的箭头，落定后淡出。
+   *  直接挂在格子上，省掉坐标换算——格子本身在 3D 里，箭头跟着它走就不会偏。 */
+  function flashTarget(cellX, cellY, offsetX, offsetY) {
+    const cell = els.board.querySelector('.cell[data-x="' + cellX + '"][data-y="' + cellY + '"]');
+    if (!cell) return;
+    // 箭头落在「真正的落点」上，而不是格心：落点 = 格内相对位置，和走过去的坐标一致
+    const tx = offsetX === undefined ? 0.5 : offsetX;
+    const ty = offsetY === undefined ? 0.5 : offsetY;
+    // 用像素而不是百分比：格子只有 aspect-ratio 没有显式高度，
+    // 百分比 top 在 ::after 上解析出来的基准会跑偏
+    cell.style.setProperty("--tx", (tx * cell.offsetWidth).toFixed(1) + "px");
+    cell.style.setProperty("--ty", (ty * cell.offsetHeight).toFixed(1) + "px");
+    cell.classList.remove("is-tapped");
+    void cell.offsetWidth; // 连续点同一格也能重播动画
+    cell.classList.add("is-tapped");
+    window.setTimeout(() => cell.classList.remove("is-tapped"), 620);
+  }
+
+  function walkTo(cellX, cellY, offsetX, offsetY, options) {
     if (!currentState) return;
+    // 手动点地图说明用户要自己开，先把自动巡检停掉
+    if (patrol.on && !(options && options.silent)) stopPatrol("已停止自动巡检：转手动控制。");
     if (isBlockedCell(cellX, cellY)) {
       setFeedback("那一格立着「禁止通行」牌，站不了人。", "warn");
       return;
@@ -772,7 +983,581 @@
     actor.target = target;
     setWalking(true);
     if (actor.node) actor.node.classList.add("is-free");
-    setFeedback("正在走向 (" + target.x.toFixed(1) + ", " + target.y.toFixed(1) + ")…");
+    if (!(options && options.silent)) {
+      if (!(options && options.silent)) flashTarget(cellX, cellY, offsetX, offsetY);
+      setFeedback("正在走向 (" + target.x.toFixed(1) + ", " + target.y.toFixed(1) + ")…");
+    }
+  }
+
+  /* ---------------------------------------------------------------- 自动巡检 */
+
+  const patrolBtn = document.getElementById("patrol-toggle");
+  const patrolLabel = document.getElementById("patrol-label");
+  const patrolReportBtn = document.getElementById("patrol-report");
+
+  const patrol = {
+    on: false,
+    queue: [],
+    total: 0,
+    done: 0,
+    skipped: 0,
+    startedAt: 0,
+    steps0: 0,
+    visited0: 0,
+    lastSummary: null,
+  };
+
+  /**
+   * 候选点位：按行蛇形采样，每两格取一点，跳过装了禁止通行牌的格子。
+   * 密度刻意比格子稀疏，走起来像巡视，而不是逐格扫描。
+   */
+  /** 候选点位：铺满地图的稀疏采样（每两格一个），避开禁行牌。 */
+  function patrolCandidates(state) {
+    const width = state.grid.width;
+    const height = state.grid.height;
+    const points = [];
+    const push = (x, y) => {
+      if (isBlockedCell(x, y)) return;
+      if (points.some((p) => p.x === x && p.y === y)) return;
+      points.push({ x: x, y: y });
+    };
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) push(x, y);
+    }
+    // 宽高是奇数时，末行/末列不会被两格步长覆盖，补一排，边上那圈也巡得到
+    if ((height - 1) % 2 !== 0) {
+      for (let x = 0; x < width; x += 2) push(x, height - 1);
+    }
+    if ((width - 1) % 2 !== 0) {
+      for (let y = 0; y < height; y += 2) push(width - 1, y);
+    }
+    return points;
+  }
+
+  /**
+   * 巡检顺序自己规划：从当前位置出发，每次挑「真的走得最近」的未巡检点。
+   * 距离用 A* 的路径格数，不是直线距离——绕开牌子之后的远近才是关键；
+   * 一个点都到不了（被围死）就跳过，避免整轮卡住。
+   */
+  function planPatrolRoute(state, start) {
+    const remaining = patrolCandidates(state);
+    const route = [];
+    const from = { x: Math.round(start.x), y: Math.round(start.y) };
+    let cursor = from;
+    while (remaining.length) {
+      let bestIndex = -1;
+      let bestCost = Infinity;
+      for (let i = 0; i < remaining.length; i += 1) {
+        const point = remaining[i];
+        const path = findPathCells(cursor.x, cursor.y, point.x, point.y);
+        const cost = path && path.length ? path.length : Infinity;
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestIndex = i;
+        }
+      }
+      if (bestIndex < 0) break;
+      const next = remaining.splice(bestIndex, 1)[0];
+      route.push(next);
+      cursor = next;
+    }
+    return route;
+  }
+
+  function setPatrolButton(on) {
+    if (!patrolBtn) return;
+    patrolBtn.classList.toggle("is-on", on);
+    patrolBtn.setAttribute("aria-pressed", String(on));
+    if (patrolLabel) patrolLabel.textContent = on ? "停止巡检" : "自动巡检";
+    if (on && patrolReportBtn) patrolReportBtn.hidden = true;
+  }
+
+  /** 取下一个点位；走不到就跳过，全部走完就收尾。 */
+  function patrolNext() {
+    if (!patrol.on) return;
+    if (!patrol.queue.length) {
+      finishPatrol();
+      return;
+    }
+    const point = patrol.queue.shift();
+
+    // 最近的候选点可能就是脚下这一格：直接算作已巡检，别在原地等一个永远走不到的终点
+    if (Math.abs(point.x - actor.x) < 0.35 && Math.abs(point.y - actor.y) < 0.35) {
+      patrol.done += 1;
+      patrolNext();
+      return;
+    }
+
+    walkTo(point.x, point.y, 0.5, 0.5, { silent: true });
+    if (actor.target) {
+      patrol.done += 1;
+      setFeedback(
+        "巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…"
+      );
+    } else {
+      patrol.skipped += 1;
+      patrolNext();
+    }
+  }
+
+  /** 巡检结束：给出步数、覆盖率与用时，并把导出按钮亮出来。 */
+  function finishPatrol() {
+    const seconds = ((performance.now() - patrol.startedAt) / 1000).toFixed(1);
+    // 注意：这里不能叫 steps，会和模块级的 let steps 撞名字，导致 TDZ 报错
+    const movedSteps = Math.max(0, steps - patrol.steps0);
+    const visited = Math.max(0, trail.size - patrol.visited0);
+    patrol.on = false;
+    patrol.queue = [];
+    setPatrolButton(false);
+    patrol.lastSummary = {
+      seconds: seconds,
+      steps: movedSteps,
+      visited: visited,
+      points: patrol.done,
+      total: patrol.total,
+    };
+    if (patrolReportBtn) patrolReportBtn.hidden = false;
+    setFeedback(
+      "巡检完成：" +
+        patrol.done +
+        " 个点位，用时 " +
+        seconds +
+        " 秒，移动 " +
+        movedSteps +
+        " 步，新覆盖 " +
+        visited +
+        " 格。" +
+        (patrol.skipped ? "（跳过 " + patrol.skipped + " 个走不到的点位）" : ""),
+      "success"
+    );
+  }
+
+  function startPatrol() {
+    if (!currentState || patrol.on) return;
+    const route = planPatrolRoute(currentState, { x: actor.x, y: actor.y });
+    if (!route.length) {
+      setFeedback("没有可以巡检的格子。", "warn");
+      return;
+    }
+    heldKeys.clear();
+    actor.path.length = 0;
+    actor.target = null;
+    patrol.queue = route;
+    patrol.total = route.length;
+    patrol.done = 0;
+    patrol.skipped = 0;
+    patrol.startedAt = performance.now();
+    patrol.steps0 = steps;
+    patrol.visited0 = trail.size;
+    patrol.on = true;
+    setPatrolButton(true);
+    startLoop();
+    setFeedback(
+      "自动巡检开始：" +
+        patrol.total +
+        " 个点位，按就近顺序走，随时点地图或按方向键可接管。"
+    );
+    patrolNext();
+  }
+
+  function stopPatrol(reason) {
+    if (!patrol.on) return;
+    patrol.on = false;
+    patrol.queue = [];
+    actor.target = null;
+    actor.path.length = 0;
+    setWalking(false);
+    setPatrolButton(false);
+    // 中途停下来就没有完整统计了，把上一轮的结果和导出按钮一起收掉
+    patrol.lastSummary = null;
+    if (patrolReportBtn) patrolReportBtn.hidden = true;
+    if (reason) setFeedback(reason, "warn");
+  }
+
+  /** 生成 Markdown 巡检报告并下载，方便贴进结业材料或存档。 */
+  /** 把轨迹整理成「字符画地图 + 坐标序列」，写进导出的 Markdown。 */
+  function describeRoute(grid) {
+    const width = grid.width || 0;
+    const height = grid.height || 0;
+    const blocked = new Set((grid.obstacles || []).map((pair) => pair[0] + "," + pair[1]));
+    const cells = [];
+    const seen = new Set();
+    trackPoints.forEach((pt) => {
+      const key = Math.round(pt.x) + "," + Math.round(pt.y);
+      if (seen.has(key)) return;
+      seen.add(key);
+      cells.push(key);
+    });
+    const rx = currentState ? currentState.robot.x : -1;
+    const ry = currentState ? currentState.robot.y : -1;
+    const ascii = [];
+    for (let y = 0; y < height; y += 1) {
+      let row = "";
+      for (let x = 0; x < width; x += 1) {
+        const key = x + "," + y;
+        let ch = ".";
+        if (blocked.has(key)) ch = "#";
+        if (seen.has(key)) ch = "o";
+        if (x === rx && y === ry) ch = "@";
+        row += ch;
+      }
+      ascii.push(row);
+    }
+    const line = cells.map((key) => "(" + key + ")").join(" → ") || "（本轮没有移动）";
+    return { cells: cells, ascii: ascii, line: line };
+  }
+
+  function exportPatrolReport() {
+    if (!patrol.lastSummary) {
+      setFeedback("还没有走完一整轮巡检，暂时没有可导出的统计。", "warn");
+      return;
+    }
+    const sum = patrol.lastSummary;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp =
+      now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + "-" +
+      pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+    const grid = currentState ? currentState.grid : { width: 0, height: 0, obstacles: [] };
+    const pos = currentState
+      ? "(" + currentState.robot.x.toFixed(1) + ", " + currentState.robot.y.toFixed(1) + ")"
+      : "未知";
+    const route = describeRoute(grid);
+    const lines = [
+      "# 巡检报告",
+      "",
+      "- 生成时间：" + now.toLocaleString("zh-CN"),
+      "- 地图：" + grid.width + " × " + grid.height + "，障碍 " + grid.obstacles.length + " 处",
+      "- 巡检点位：" + patrol.done + " / " + patrol.total +
+        (patrol.skipped ? "（跳过 " + patrol.skipped + " 个）" : ""),
+      "- 用时：" + sum.seconds + " 秒",
+      "- 移动步数：" + sum.steps + " 步",
+      "- 新覆盖格子：" + sum.visited + " 格",
+      "- 结束位置：" + pos,
+      "",
+      "## 本轮路线",
+      "",
+      ...route.ascii.map((row) => "    " + row),
+      "",
+      "    # 禁止通行   o 走过   . 可通行   @ 当前位置",
+      "",
+      "共 " + trackPoints.length + " 个采样点，按格子去重后 " + route.cells.length + " 格：",
+      "",
+      "    " + route.line,
+      "",
+      "## 路线策略",
+      "",
+      "按行蛇形采样生成巡检点位（每两格取一点，跳过禁止通行牌），按巡游顺序",
+      "逐个推进；每段路径由 A* 规划并做连续扫掠碰撞检测，遇障自动绕行。",
+      "",
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "巡检报告-" + stamp + ".md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setFeedback("巡检报告已导出。", "success");
+
+    // 顺手存一份到服务端，多次巡检可以在 /api/reports 里对比
+    requestJSON("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scene: currentSceneId,
+        points: sum.points,
+        seconds: Number(sum.seconds),
+        steps: sum.steps,
+        visited: sum.visited,
+      }),
+    })
+      .then((res) => {
+        setFeedback("巡检报告已导出，并存档为第 " + res.report.id + " 条记录。", "success");
+      })
+      .catch(() => {
+        setFeedback("巡检报告已导出（服务端存档失败，可稍后重试）。", "warn");
+      });
+  }
+
+  /* ------------------------------------------------------------ 巡检记录 */
+
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    const text = String(iso).replace("T", " ");
+    return text.length >= 16 ? text.slice(0, 16) : text;
+  }
+
+  function renderReports(list, limit) {
+    if (!els.reportsBody) return;
+    const wrap = els.reportsBody;
+    wrap.textContent = "";
+    if (!list.length) {
+      const empty = document.createElement("p");
+      empty.className = "sheet-empty";
+      empty.textContent = "还没有记录。跑完一轮自动巡检并导出一次报告，这里就会出现一条。";
+      wrap.append(empty);
+      return;
+    }
+    const table = document.createElement("table");
+    table.className = "rep-table";
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["#", "时间", "地图", "点位", "用时", "步数", "覆盖"].forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.append(th);
+    });
+    head.append(headRow);
+    const body = document.createElement("tbody");
+    list.forEach((item) => {
+      const tr = document.createElement("tr");
+      const cells = [
+        String(item.id),
+        fmtTime(item.received_at),
+        item.scene_name || item.scene || "—",
+        item.points + " 个",
+        item.seconds + " 秒",
+        item.steps + " 步",
+        item.visited + " 格",
+      ];
+      cells.forEach((text, index) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (index === 0) td.className = "rep-id";
+        tr.append(td);
+      });
+      body.append(tr);
+    });
+    table.append(head, body);
+    wrap.append(table);
+    if (els.reportsHint) {
+      els.reportsHint.textContent = "共 " + list.length + " 条（最多显示最近 " + limit + " 条）。";
+    }
+  }
+
+  function openReports() {
+    if (!els.reportsSheet) return;
+    els.reportsSheet.hidden = false;
+    if (els.reportsBody) {
+      els.reportsBody.textContent = "正在读取…";
+    }
+    if (els.reportsClose) els.reportsClose.focus();
+    requestJSON("/api/reports?limit=20")
+      .then((data) => {
+        renderReports(data.reports || [], data.limit || 20);
+      })
+      .catch((err) => {
+        if (!els.reportsBody) return;
+        els.reportsBody.textContent = "";
+        const tip = document.createElement("p");
+        tip.className = "sheet-empty";
+        tip.textContent = "读取失败：" + err.message + "。后端可能没启动，稍后再试。";
+        els.reportsBody.append(tip);
+      });
+  }
+
+  function closeReports() {
+    if (els.reportsSheet) els.reportsSheet.hidden = true;
+    if (els.reportsOpen) els.reportsOpen.focus();
+  }
+
+  /* ------------------------------------------------------------ 虚拟传感器 */
+
+  /** 障碍格集合，传感器步进时直接查表。 */
+  function obstacleSet() {
+    const set = new Set();
+    const grid = currentState && currentState.grid;
+    if (!grid) return set;
+    (grid.obstacles || []).forEach((pair) => {
+      if (Array.isArray(pair) && pair.length >= 2) set.add(pair[0] + "," + pair[1]);
+    });
+    return set;
+  }
+
+  function scanLayerElement() {
+    if (scanLayer && scanLayer.isConnected) return scanLayer;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "scan");
+    svg.setAttribute("aria-hidden", "true");
+    const ns = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(ns, "defs");
+    const clip = document.createElementNS(ns, "clipPath");
+    clip.setAttribute("id", "scan-clip");
+    const clipRect = document.createElementNS(ns, "rect");
+    clip.append(clipRect);
+    defs.append(clip);
+    const group = document.createElementNS(ns, "g");
+    group.setAttribute("clip-path", "url(#scan-clip)");
+    const rays = document.createElementNS(ns, "path");
+    rays.setAttribute("class", "rays");
+    const ring = document.createElementNS(ns, "path");
+    ring.setAttribute("class", "ring");
+    group.append(ring, rays);
+    svg.append(defs, group);
+    els.board.append(svg);
+    scanLayer = svg;
+    return svg;
+  }
+
+  /**
+   * 从机器人所在格向外打一圈射线：碰到障碍或出界就停。
+   * 射线经过的格子记进 scanned，射线端点连成扫描线。
+   */
+  function updateScan() {
+    const metrics = currentState ? gridMetrics() : null;
+    const svg = scanLayerElement();
+
+    if (!currentState || !metrics) {
+      svg.classList.remove("is-on");
+      return;
+    }
+
+    if (els.factScanned) els.factScanned.textContent = String(scanned.size);
+    svg.classList.toggle("is-on", scanOn);
+    if (!scanOn) return;
+
+    const width = currentState.grid.width;
+    const height = currentState.grid.height;
+    const blocked = obstacleSet();
+
+    // 视图框用「内边距盒」尺寸，和 inset:0 的绝对定位一致，避免 1~2px 的缩放错位
+    const boxW = els.board.clientWidth;
+    const boxH = els.board.clientHeight;
+    svg.setAttribute("viewBox", "0 0 " + boxW + " " + boxH);
+    svg.setAttribute("width", String(boxW));
+    svg.setAttribute("height", String(boxH));
+
+    // 传感器只画在地图范围内：网格的左右边界取「第一格左沿 / 最后一格右沿」
+    const pad = metrics.cellPx / 2;
+    const clipRect = svg.querySelector("#scan-clip rect");
+    if (clipRect) {
+      clipRect.setAttribute("x", String(metrics.originX - pad));
+      clipRect.setAttribute("y", String(metrics.originY - pad));
+      clipRect.setAttribute("width", String((width - 1) * metrics.step + metrics.cellPx));
+      clipRect.setAttribute("height", String((height - 1) * metrics.step + metrics.cellPx));
+    }
+
+    const cx = metrics.originX + actor.x * metrics.step;
+    const cy = metrics.originY + actor.y * metrics.step;
+    // 1) 逐格判定「看得到」：先算格心距离，再沿视线做亚格采样判断有没有被牌子挡住。
+    //    这样做比「沿射线累加格子」稳定：不会因为射线数量/步长出现漏格或锯齿。
+    const visible = new Set();
+    const inRange = new Set();
+    const span = Math.ceil(SCAN_RANGE) + 1;
+    const baseX = Math.round(actor.x);
+    const baseY = Math.round(actor.y);
+
+    for (let gy = baseY - span; gy <= baseY + span; gy += 1) {
+      for (let gx = baseX - span; gx <= baseX + span; gx += 1) {
+        if (gx < 0 || gy < 0 || gx >= width || gy >= height) continue;
+        const key = gx + "," + gy;
+        if (blocked.has(key)) continue; // 牌子本身不算可走的格子
+        const dist = Math.hypot(gx - actor.x, gy - actor.y);
+        if (dist > SCAN_RANGE) continue;
+        inRange.add(key);
+
+        // 从机器人往格心采样，任何一步落在牌子上就看不见
+        let occluded = false;
+        const samples = Math.max(2, Math.ceil(dist / 0.1));
+        for (let s = 1; s <= samples; s += 1) {
+          const t = s / samples;
+          const sx = actor.x + (gx - actor.x) * t;
+          const sy = actor.y + (gy - actor.y) * t;
+          const bx = Math.round(sx);
+          const by = Math.round(sy);
+          if (bx === gx && by === gy) break; // 已经走到目标格，不再往后看
+          if (blocked.has(bx + "," + by)) {
+            occluded = true;
+            break;
+          }
+        }
+        if (!occluded) visible.add(key);
+      }
+    }
+
+    scanFresh = false;
+    visible.forEach((key) => {
+      if (!scanned.has(key)) {
+        scanned.add(key);
+        scanFresh = true;
+      }
+    });
+    // 机器人脚下那一格永远算扫到
+    const here = cellKey(Math.round(actor.x), Math.round(actor.y));
+    if (!scanned.has(here)) {
+      scanned.add(here);
+      scanFresh = true;
+    }
+
+    // 2) 每个方向的最大可见距离：撞牌子或出界就停，最多到量程。
+    //    同一组距离既画射线、也画量程轮廓——所以遇到障碍时轮廓会凹进去，不再是个正圆。
+    const stepLen = 0.08;
+    const segs = [];
+    const ringPts = [];
+    for (let i = 0; i < SCAN_RAYS; i += 1) {
+      const angle = (Math.PI * 2 * i) / SCAN_RAYS;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      let dist = 0;
+      while (dist < SCAN_RANGE) {
+        const next = Math.min(dist + stepLen, SCAN_RANGE);
+        const px = actor.x + dx * next;
+        const py = actor.y + dy * next;
+        if (px < -0.5 || py < -0.5 || px > width - 0.5 || py > height - 0.5) break;
+        if (blocked.has(Math.round(px) + "," + Math.round(py))) break;
+        dist = next;
+      }
+      const ex = cx + dx * dist * metrics.step;
+      const ey = cy + dy * dist * metrics.step;
+      segs.push("M" + cx.toFixed(1) + " " + cy.toFixed(1) + "L" + ex.toFixed(1) + " " + ey.toFixed(1));
+      ringPts.push(ex.toFixed(1) + " " + ey.toFixed(1));
+    }
+    svg.querySelector("path.rays").setAttribute("d", segs.join(" "));
+    svg.querySelector("path.ring").setAttribute("d", "M" + ringPts.join("L") + "Z");
+
+    // 3) 每次都重刷类名：盲区随位置变化，不能等「有新格子」才更新，
+    //    否则站着不动或走进旧区域时，斜纹会停在上一帧的位置。
+    els.board.querySelectorAll(".cell").forEach((cell) => {
+      const key = cell.dataset.x + "," + cell.dataset.y;
+      cell.classList.toggle("cell--scanned", scanned.has(key));
+      cell.classList.toggle("cell--unseen", inRange.has(key) && !visible.has(key));
+    });
+
+    if (els.factScanned) els.factScanned.textContent = String(scanned.size);
+
+    if (scanFresh) {
+      svg.classList.remove("is-pulse");
+      void svg.offsetWidth;
+      svg.classList.add("is-pulse");
+      window.clearTimeout(scanPulseTimer);
+      scanPulseTimer = window.setTimeout(() => svg.classList.remove("is-pulse"), 560);
+    }
+  }
+
+
+  function setScan(on) {
+    scanOn = Boolean(on);
+    try {
+      window.localStorage.setItem("patrol.sensor", scanOn ? "1" : "0");
+    } catch (err) {
+      /* 隐私模式下写不进去就算了 */
+    }
+    if (els.sensorToggle) els.sensorToggle.setAttribute("aria-checked", scanOn ? "true" : "false");
+    updateScan();
+  }
+
+  function restoreScan() {
+    let saved = null;
+    try {
+      saved = window.localStorage.getItem("patrol.sensor");
+    } catch (err) {
+      saved = null;
+    }
+    if (saved === "0") scanOn = false;
+    if (els.sensorToggle) els.sensorToggle.setAttribute("aria-checked", scanOn ? "true" : "false");
   }
 
   /* ---------------------------------------------------------------- 渲染 */
@@ -795,10 +1580,12 @@
       Math.abs(previous.x - state.robot.x) + Math.abs(previous.y - state.robot.y) > 1;
 
     if (!previous || jumped || trail.size === 0) {
+      trackPoints = [];
       trail = new Set();
       steps = 0;
     }
     trail.add(cellKey(state.robot.x, state.robot.y));
+    pushTrackPoint(state.robot.x, state.robot.y);
     return jumped;
   }
 
@@ -838,6 +1625,10 @@
       label = "第 " + y + " 行第 " + x + " 列，可通行，已走过";
     }
 
+    if (scanOn && scanned.has(cellKey(x, y))) {
+      cell.classList.add("cell--scanned");
+    }
+
     // 入口（左上）与出口（右下）：只是标记，不是障碍，谁都能踩上去
     const gate = gateAt(state, x, y);
     if (gate) {
@@ -857,6 +1648,13 @@
   function renderState(state, options) {
     const opts = options || {};
     const { width, height } = state.grid;
+
+    // 换图（尺寸变了）就把扫描记录清掉，不然会留着上一张图的格子
+    const dims = width + "x" + height;
+    if (dims !== lastGridDims) {
+      lastGridDims = dims;
+      scanned = new Set();
+    }
 
     els.board.style.setProperty("--columns", String(width));
     els.board.style.setProperty("--rows", String(height));
@@ -890,6 +1688,10 @@
     fitStage();
     applyActorTransform();
     applyActorLook();
+    updateScan();
+    // 格点模式不经过 rAF，这里补一次采样，轨迹线才不会断
+    pushTrackPoint(state.robot.x, state.robot.y);
+    paintTrack();
 
     els.placeholder.hidden = true;
     els.mapMeta.textContent = mapMeta(state);
@@ -897,10 +1699,18 @@
     els.factSteps.textContent = String(steps);
     els.factVisited.textContent = String(trail.size);
     updateFacts();
-  }
+  
+    // 地图刚重绘时布局可能还没稳定（换场景会改变列数），
+    // 等下一帧再按真实格宽摆一次角色和导图层，避免站在旧坐标上。
+    window.requestAnimationFrame(() => {
+      applyActorTransform();
+      layoutOverlays();
+    });
+}
 
   function mapMeta(state) {
-    return state.grid.width + " × " + state.grid.height + " 网格 · 禁止通行 " +
+    const name = state.scene && state.scene.name ? state.scene.name + " · " : "";
+    return name + state.grid.width + " × " + state.grid.height + " 网格 · 禁止通行 " +
       state.grid.obstacles.length + " 处";
   }
 
@@ -926,6 +1736,7 @@
     });
     // 「重新读取状态」是加载失败后的重试入口，只跟着请求在飞时禁用
     els.reload.disabled = busy;
+    patrolBtn.disabled = busy || noState;
     els.board.setAttribute("aria-busy", busy ? "true" : "false");
   }
 
@@ -934,41 +1745,13 @@
     els.placeholder.hidden = false;
   }
 
-  function setMode(next) {
-    mode = next;
-    els.modeBtns.forEach((btn) => {
-      const on = btn.dataset.mode === next;
-      btn.classList.toggle("is-on", on);
-      btn.setAttribute("aria-pressed", String(on));
-    });
-
-    if (next === "free") {
-      els.controlHint.textContent = "点击地图走过去";
-      els.keysHint.innerHTML = "也可以按住 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动";
-      els.footNote.textContent =
-        "地图与障碍来自后端接口；自由移动是页面内的运动模拟，切回格点移动会以服务端状态为准。";
-      actor.path.length = 0;
-      setWalking(false);
-      if (actor.node) actor.node.classList.remove("is-grid");
-    } else {
-      els.controlHint.textContent = "每次点击移动一格";
-      els.keysHint.innerHTML = "也可以直接用键盘 <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移动";
-      els.footNote.textContent =
-        "地图与状态全部来自后端接口，页面不做本地预测；请求失败时不会改变画面中的机器人位置。";
-      heldKeys.clear();
-      actor.path.length = 0;
-      setWalking(false);
-      if (currentState) {
-        actor.x = currentState.robot.x;
-        actor.y = currentState.robot.y;
-        actor.heading = currentState.robot.heading;
-        applyActorTransform();
-        applyActorLook();
-      }
-      if (actor.node) actor.node.classList.add("is-grid");
-    }
-    updateFacts();
-    syncControls();
+  /** 自由移动的固定文案：没有模式切换，进入场景时刷一次就够。 */
+  function applyFreeTexts() {
+    els.controlHint.textContent = "点击或长按地图走过去";
+    els.keysHint.innerHTML = "也可以按住 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 连续移动";
+    els.footNote.textContent =
+      "地图与障碍来自后端接口；移动是在页面内连续计算的，不会为每一步请求后端。";
+    if (actor.node) actor.node.classList.remove("is-grid");
   }
 
   /* ---------------------------------------------------------------- 交互 */
@@ -976,6 +1759,8 @@
   async function loadState(options) {
     const initial = Boolean(options && options.initial);
     if (busy) return;
+    // 重新读数会让位置跳变，先把自动巡检停掉
+    stopPatrol("已停止自动巡检：状态被重新读取。");
 
     busy = true;
     syncControls();
@@ -1021,78 +1806,8 @@
     }
   }
 
-  async function move(direction) {
-    if (mode !== "grid" || busy || !currentState) return;
-    if (!Object.prototype.hasOwnProperty.call(DIRECTIONS, direction)) return;
-
-    const from = { x: currentState.robot.x, y: currentState.robot.y };
-
-    busy = true;
-    syncControls();
-    setFeedback("正在发送「向" + DIRECTIONS[direction] + "移动」指令…");
-
-    try {
-      const state = validateState(
-        await requestJSON("/api/move", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ direction: direction }),
-        })
-      );
-      currentState = state;
-      steps += 1;
-      trackPosition(state, from);
-
-      actor.x = state.robot.x;
-      actor.y = state.robot.y;
-      actor.heading = state.robot.heading;
-      actor.cell = cellKey(state.robot.x, state.robot.y);
-
-      renderState(state, { moved: true });
-      setConnection("online", "服务在线");
-      setFeedback(
-        "已向" + DIRECTIONS[direction] + "移动一格，当前位置 (" + state.robot.x + ", " + state.robot.y + ")。",
-        "success"
-      );
-      scheduleSettle();
-    } catch (error) {
-      const rejected = error.status >= 400 && error.status < 500;
-      if (rejected) {
-        setFeedback("移动被拒绝：" + describeError(error), "warn");
-        setConnection("online", "服务在线");
-      } else {
-        setFeedback(
-          "移动结果未确认：" + describeError(error) + "。最新状态尚未确认，请点「重新读取状态」，不要重复点击方向键。",
-          "error"
-        );
-        if (error.code === "network" || error.code === "timeout") {
-          setConnection("offline", "未连接服务");
-        }
-      }
-    } finally {
-      busy = false;
-      syncControls();
-    }
-  }
-
   // 服务端把「刚完成一次移动」只保持一小段时间，之后自动回到 idle。
   // 这里在移动结束后悄悄再读一次状态，只刷新面板上的坐标/朝向/状态，不动提示文案。
-  let settleTimer = 0;
-
-  function scheduleSettle() {
-    window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(async () => {
-      if (busy || !currentState || mode !== "grid") return;
-      try {
-        const state = validateState(await requestJSON("/api/state"));
-        if (busy) return;
-        currentState = state;
-        updateFacts();
-      } catch (error) {
-        // 只是让状态显示落回「待命」，失败就不动，保留上一次的画面
-      }
-    }, 900);
-  }
 
   function describeError(error) {
     if (error instanceof ApiError) return error.message;
@@ -1110,6 +1825,7 @@
   }
 
   function openSetup() {
+    stopPatrol("已停止自动巡检：重新选择了场景。");
     els.start.hidden = false;
     started = false;
     setWalking(false);
@@ -1118,7 +1834,26 @@
     window.setTimeout(() => els.startGo.focus(), 30);
   }
 
-  function beginRun() {
+  async function beginRun() {
+    // 换地图要先让后端切场景，切失败就别进，免得跑到一半发现地图对不上
+    const wanted = selection.map;
+    if (wanted && wanted !== currentSceneId) {
+      try {
+        const state = await requestJSON("/api/scene", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: wanted }),
+        });
+        validateState(state);
+        currentState = state;
+        currentSceneId = state.scene ? state.scene.id : wanted;
+        renderState(state);
+      } catch (error) {
+        setFeedback("切换地图失败：" + describeError(error), "warn");
+        return;
+      }
+    }
+
     started = true;
     els.start.hidden = true;
     applyInputMode();
@@ -1131,6 +1866,9 @@
       els.mapMeta.textContent = mapMeta(currentState);
     }
     setFeedback("已进入巡检，点地图任意位置或按住方向键开始。", "");
+    // 开场选完机体才进入：这里必须按当前选择重画一次，立牌才会换成选中的那台
+    trackPoints = [];
+    if (currentState) renderState(currentState);
     applyActorTransform();
     applyActorLook();
     startLoop();
@@ -1140,7 +1878,9 @@
   function restoreSelection() {
     try {
       const saved = JSON.parse(window.localStorage.getItem("patrol.selection") || "null");
-      if (saved && saved.map) selection.map = saved.map;
+      // 旧版本存的是 grid8，映射到现在的场景 id
+      if (saved && saved.map === "grid8") selection.map = "standard";
+      else if (saved && saved.map) selection.map = saved.map;
       if (saved && saved.robot) selection.robot = saved.robot;
     } catch (error) {
       /* 忽略损坏的本地数据 */
@@ -1218,17 +1958,6 @@
   }
 
   /** 格点模式下摇杆当成「推一下走一格」，用冷却时间挡掉连发。 */
-  function stickStep(dx, dy) {
-    const now = Date.now();
-    if (now - stickLastStep < 420) return;
-    stickLastStep = now;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      if (Math.abs(dx) > 0.05) move(dx > 0 ? "right" : "left");
-    } else {
-      move(dy > 0 ? "down" : "up");
-    }
-  }
-
   function trackStick(event) {
     if (!els.stickBase || stickPointer === null) return;
     const rect = els.stickBase.getBoundingClientRect();
@@ -1256,11 +1985,6 @@
     stick.active = true;
     stick.dx = (dx / len) * speed;
     stick.dy = (dy / len) * speed;
-
-    if (mode === "grid") {
-      stickStep(stick.dx, stick.dy);
-      return;
-    }
     startLoop();
   }
 
@@ -1294,10 +2018,38 @@
       });
     });
 
+    if (els.traceToggle) {
+      els.traceToggle.addEventListener("click", () => setTrace(!traceOn));
+    }
+    if (els.reportsOpen) els.reportsOpen.addEventListener("click", openReports);
+    if (els.reportsClose) els.reportsClose.addEventListener("click", closeReports);
+    if (els.reportsSheet) {
+      els.reportsSheet.addEventListener("click", (event) => {
+        if (event.target === els.reportsSheet) closeReports();
+      });
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && els.reportsSheet && !els.reportsSheet.hidden) closeReports();
+    });
+    if (els.sensorToggle) {
+      els.sensorToggle.addEventListener("click", () => setScan(!scanOn));
+    }
+
     if (els.stickToggle) {
       els.stickToggle?.addEventListener("click", () => setStick(!stick.on));
     }
   }
+  /* --------------------------------------------------------- 虚拟传感器 */
+
+  const SCAN_RANGE = 2.6; // 量程，单位「格」
+  const SCAN_RAYS = 56; // 射线数，够密就行，太多会拖帧
+  let scanned = new Set(); // 本会话扫到过的格子（跨地图切换时清空）
+  let scanOn = true;
+  let scanLayer = null;
+  let scanPulseTimer = 0;
+  let scanFresh = false;
+  let lastGridDims = "";
+
   const KEY_TO_DIRECTION = {
     ArrowUp: "up",
     ArrowDown: "down",
@@ -1346,9 +2098,13 @@
     let resizeFrame = 0;
     const refit = () => {
       window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => fitStage({ instant: true }));
+      resizeFrame = window.requestAnimationFrame(() => {
+        fitStage({ instant: true });
+        layoutOverlays();
+      });
     };
     window.addEventListener("resize", refit);
+    window.addEventListener("resize", () => layoutOverlays());
 
     // resize 事件偶尔拿到的还是旧布局（尤其是全屏切换），再挂一层观察器兜底
     if (typeof ResizeObserver === "function" && els.stage) {
@@ -1360,7 +2116,7 @@
     els.sideToggle.addEventListener("click", () => {
       setSide(!els.layout.classList.contains("is-collapsed"));
     });
-    // 方向键：自由模式按住持续走，格点模式点一下走一格
+    // 方向键：按住持续走，松手停
     els.keys.forEach((button) => {
       const direction = button.dataset.direction;
 
@@ -1378,22 +2134,54 @@
       button.addEventListener("pointerup", release);
       button.addEventListener("pointerleave", release);
       button.addEventListener("pointercancel", release);
+    });
 
-      button.addEventListener("click", () => {
-        if (mode !== "grid") return;
-        move(direction);
+    if (patrolBtn) {
+      patrolBtn.addEventListener("click", () => {
+        if (patrol.on) stopPatrol("已停止自动巡检。");
+        else startPatrol();
       });
-    });
+    }
 
-    els.modeBtns.forEach((btn) => {
-      btn.addEventListener("click", () => setMode(btn.dataset.mode));
-    });
+    if (patrolReportBtn) {
+      patrolReportBtn.addEventListener("click", exportPatrolReport);
+    }
 
     // 点地图：自由模式下走过去
     // 地图上按住就能走：按下立刻出发，按住拖动时换成指针下面的那个格子
+    // 命中格子：先按元素找，找不到就在几像素内绕一圈再找，最后退回「最近的格心」。
+    // 斜俯视下格子是平行四边形、格子之间还有 4px 缝，直接 elementFromPoint
+    // 经常落在 .board 或轴上，用户就会觉得「点了没反应」。
     const cellUnder = (clientX, clientY) => {
-      const el = document.elementFromPoint(clientX, clientY);
-      return el && el.closest ? el.closest(".cell") : null;
+      const direct = document.elementFromPoint(clientX, clientY);
+      const hit = direct && direct.closest ? direct.closest(".cell") : null;
+      if (hit && hit.dataset.x) return hit;
+
+      const RING = [3, 6, 10];
+      for (const radius of RING) {
+        for (let i = 0; i < 8; i += 1) {
+          const angle = (Math.PI * 2 * i) / 8;
+          const el = document.elementFromPoint(
+            clientX + Math.cos(angle) * radius,
+            clientY + Math.sin(angle) * radius
+          );
+          const cell = el && el.closest ? el.closest(".cell") : null;
+          if (cell && cell.dataset.x) return cell;
+        }
+      }
+
+      let best = null;
+      let bestDist = 48;
+      els.board.querySelectorAll(".cell").forEach((cell) => {
+        if (!cell.dataset.x) return;
+        const rect = cell.getBoundingClientRect();
+        const d = Math.hypot(rect.left + rect.width / 2 - clientX, rect.top + rect.height / 2 - clientY);
+        if (d < bestDist) {
+          bestDist = d;
+          best = cell;
+        }
+      });
+      return best;
     };
 
     const pointIn = (cell, clientX, clientY) => {
@@ -1410,11 +2198,13 @@
     };
 
     els.board.addEventListener("pointerdown", (event) => {
-      if (!started || mode !== "free" || !currentState) return;
       if (event.button > 0) return;
-      const point = pointIn(event.target.closest ? event.target.closest(".cell") : null, event.clientX, event.clientY);
-      if (!point) return;
+      // 先挡住默认行为：不然按在轴标签/立牌/格子缝隙上会开始「拖选文字」，
+      // 松手时浏览器把这次点击吃掉，看起来就是「按了没反应」。
       event.preventDefault();
+      if (!started || !currentState) return;
+      const point = pointIn(cellUnder(event.clientX, event.clientY), event.clientX, event.clientY);
+      if (!point) return;
       pressPoint = point;
       try {
         els.board.setPointerCapture(event.pointerId);
@@ -1425,7 +2215,9 @@
     });
 
     els.board.addEventListener("pointermove", (event) => {
-      if (!pressPoint) return;
+      // 鼠标只是滑过去（没按住）时不要改目标；松开在画布外时 buttons 也会归零
+      if (!pressPoint || event.buttons === 0) return;
+      event.preventDefault();
       // 用元素命中判断：被 capture 到 board 上的事件 target 不再是格子
       const cell = cellUnder(event.clientX, event.clientY);
       if (!cell || !cell.dataset.x) return;
@@ -1441,10 +2233,18 @@
     };
     els.board.addEventListener("pointerup", endPress);
     els.board.addEventListener("pointercancel", endPress);
+    els.board.addEventListener("pointerleave", (event) => {
+      if (event.buttons === 0) endPress();
+    });
+    // 松开发生在画布外（比如拖到右栏再放手）时，board 收不到 pointerup，这里兜底
+    window.addEventListener("pointerup", endPress);
+    window.addEventListener("pointercancel", endPress);
     els.reload.addEventListener("click", () => {
       // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
       steps = 0;
       trail = new Set();
+      trackPoints = [];
+      paintTrack();
       actor.cell = "";
       paintTrail();
       els.factSteps.textContent = "0";
@@ -1470,11 +2270,6 @@
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
       event.preventDefault();
-
-      if (mode === "grid") {
-        if (!event.repeat) move(direction);
-        return;
-      }
       heldKeys.add(direction);
       markHeldKey(direction, true);
       startLoop();
@@ -1500,8 +2295,17 @@
     bindEvents();
     restoreStick();
     restoreSide();
+    restoreScan();
+    restoreTrace();
     syncControls();
-    setMode("free");
+    applyFreeTexts();
+    // 扫描扇形与轨迹要跟着角色走：单独一层 rAF，和移动循环解耦，
+    // 这样即使没在移动（改变窗口大小、切右栏）也能对上位置。
+    (function overlayLoop(ts) {
+      refreshOverlays(ts);
+      window.requestAnimationFrame(overlayLoop);
+    })(0);
+
     loadState({ initial: true });
 
     // 模型异步取：取到以后重画一遍，角色和牌子才会立到地图上
@@ -1510,6 +2314,10 @@
       if (els.robotPreview && sprites.dog) {
         const preview = cloneSprite("dog");
         if (preview) els.robotPreview.append(preview);
+      }
+      if (els.roverPreview && sprites.rover) {
+        const preview = cloneSprite("rover");
+        if (preview) els.roverPreview.append(preview);
       }
       if (currentState) renderState(currentState);
     });

@@ -8,12 +8,50 @@ import time
 # 超过这个窗口再读状态就应当回到 idle，否则页面会一直显示「移动中」。
 MOVING_WINDOW_SECONDS = 0.5
 
-# 地图大小：8×8
+# 地图大小：8×8（标准场景，保持向后兼容）
 GRID_WIDTH = 8
 GRID_HEIGHT = 8
 
 # 障碍物坐标
 OBSTACLES = {(2, 2), (3, 2), (5, 5)}
+
+# 可选场景。前端开场的选择器直接读这份表，加地图只需要在这里加一项。
+SCENES: dict[str, dict] = {
+    "standard": {
+        "name": "标准巡检区",
+        "width": 8,
+        "height": 8,
+        "obstacles": {(2, 2), (3, 2), (5, 5)},
+    },
+    "warehouse": {
+        "name": "仓储通道",
+        "width": 10,
+        "height": 8,
+        "obstacles": {(2, 1), (2, 2), (3, 2), (6, 3), (6, 4), (7, 4), (8, 6)},
+    },
+}
+
+#: 机体目录。前端 frontend/app.js 的 ROBOTS 与这里一一对应，改一边要同步另一边。
+ROBOTS = [
+    {
+        "id": "go2",
+        "name": "机器狗 · Go2-lite",
+        "kind": "quadruped",
+        "radius": 0.26,
+        "speed": 2.6,
+        "note": "四足，转弯半径小，适合狭窄通道",
+    },
+    {
+        "id": "rover",
+        "name": "轮式巡检车 · Rover-1",
+        "kind": "wheeled",
+        "radius": 0.34,
+        "speed": 3.2,
+        "note": "轮式，直线更快，半径更大，贴边要留余量",
+    },
+]
+
+DEFAULT_SCENE = "standard"
 
 # 四个方向对应的坐标变化
 DIRECTIONS = {
@@ -32,6 +70,10 @@ class OutOfBounds(Exception):
     """移动后会超出地图边界。"""
 
 
+class InvalidScene(Exception):
+    """场景 id 不在 SCENES 里。"""
+
+
 class Blocked(Exception):
     """目标格是障碍物。"""
 
@@ -39,8 +81,34 @@ class Blocked(Exception):
 class Simulation:
     """维护地图和机器人状态，并判断移动是否合法。"""
 
-    def __init__(self) -> None:
+    def __init__(self, scene_id: str = DEFAULT_SCENE) -> None:
+        self.scene_id = scene_id if scene_id in SCENES else DEFAULT_SCENE
         self.reset()
+
+    # ---- 当前场景的几何信息（供 move/state 使用）--------------------------
+    @property
+    def scene(self) -> dict:
+        return SCENES[self.scene_id]
+
+    @property
+    def width(self) -> int:
+        return int(self.scene["width"])
+
+    @property
+    def height(self) -> int:
+        return int(self.scene["height"])
+
+    @property
+    def obstacles(self) -> set[tuple[int, int]]:
+        return set(self.scene["obstacles"])
+
+    def set_scene(self, scene_id: str) -> dict:
+        """切换场景并把机器人放回起点。"""
+        if scene_id not in SCENES:
+            raise InvalidScene(scene_id)
+        self.scene_id = scene_id
+        self.reset()
+        return self.state()
 
     def reset(self) -> None:
         """把机器人放回起点。"""
@@ -61,10 +129,11 @@ class Simulation:
             self.status = "idle"
 
         return {
+            "scene": {"id": self.scene_id, "name": self.scene["name"]},
             "grid": {
-                "width": GRID_WIDTH,
-                "height": GRID_HEIGHT,
-                "obstacles": [list(item) for item in sorted(OBSTACLES)],
+                "width": self.width,
+                "height": self.height,
+                "obstacles": [list(item) for item in sorted(self.obstacles)],
             },
             "robot": {
                 "x": self.x,
@@ -83,11 +152,11 @@ class Simulation:
         nx, ny = self.x + dx, self.y + dy
 
         # 先检查边界
-        if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
+        if not (0 <= nx < self.width and 0 <= ny < self.height):
             raise OutOfBounds(direction)
 
         # 再检查障碍物
-        if (nx, ny) in OBSTACLES:
+        if (nx, ny) in self.obstacles:
             raise Blocked(direction)
 
         # 全部通过后，才修改机器人状态

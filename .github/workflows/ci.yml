@@ -51,3 +51,39 @@ jobs:
 
       - name: 语法检查
         run: node --check frontend/app.js
+
+  smoke:
+    name: 启动冒烟
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: 安装运行依赖
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 启动服务并探测
+        working-directory: backend
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8080 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/api/health -o /tmp/health.json; then break; fi
+            sleep 1
+          done
+          cat /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)" = "200"
+          curl -sf -X POST http://127.0.0.1:8080/api/move \
+            -H 'Content-Type: application/json' -d '{"direction":"right"}' | grep -q '"x":1'
+
+      - name: 检查启动脚本可执行位
+        run: test -x start.sh
