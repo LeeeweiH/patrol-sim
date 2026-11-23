@@ -41,7 +41,7 @@
 
 ```bash
 docker pull ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0
-docker run -d --name patrol-sim -p 8080:8080 ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0
+docker run -d --name patrol-sim -p 8080:8080 ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0```
 
 
 ![控制界面](docs/images/02-移动与提示.png)
