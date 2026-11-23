@@ -1945,9 +1945,14 @@ kbd {
   pointer-events: none;
 }
 
-.stage,
-.board {
+.stage {
   cursor: default;
+}
+
+/* 整块地图统一成「手」：格子之间的 4px 缝隙也在这个框里，
+   否则鼠标贴着格子边缘挪动时会在 手 / 箭头 之间来回跳 */
+.board {
+  cursor: pointer;
 }
 
 .cell {
