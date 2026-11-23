@@ -42,6 +42,18 @@
 ```bash
 docker pull ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0
 docker run -d --name patrol-sim -p 8080:8080 ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0
+```
+
+在本地跑起来即可演示：
+
+```bash
+./start.sh      # Linux / macOS / WSL
+start.bat       # Windows
+```
+
+启动后在浏览器打开 <http://localhost:8080/>（端口被占用时脚本会自动顺延并打印实际地址）。页面先弹开场选择，选好地图与机器人点「开始巡检」进入：可以用方向键、WASD、网页摇杆或直接点地图移动，右侧面板实时显示坐标、朝向与运行状态；点「自动巡检」会自己规划顺序（每步挑走得最近、还没巡过的点位）走完整张地图，随时点地图或按方向键即可接管；走完可一键导出 Markdown 巡检报告。
+
+演示的是二维仿真，不是真机；地图与障碍物来自后端接口，页面不做本地预测。
 
 
 ![控制界面](docs/images/02-移动与提示.png)
