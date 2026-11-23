@@ -1956,8 +1956,9 @@ kbd {
 .cell.is-tapped::after {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
+  left: var(--tx, 50%);
+  top: var(--ty, 50%);
+  transform-origin: 50% 50%;
   width: 34%;
   height: 42%;
   margin-left: -17%;

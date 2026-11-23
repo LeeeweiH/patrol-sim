@@ -944,9 +944,16 @@
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
   /** 点下去立刻给个回执：目标格自己闪一个朝下的箭头，落定后淡出。
    *  直接挂在格子上，省掉坐标换算——格子本身在 3D 里，箭头跟着它走就不会偏。 */
-  function flashTarget(cellX, cellY) {
+  function flashTarget(cellX, cellY, offsetX, offsetY) {
     const cell = els.board.querySelector('.cell[data-x="' + cellX + '"][data-y="' + cellY + '"]');
     if (!cell) return;
+    // 箭头落在「真正的落点」上，而不是格心：落点 = 格内相对位置，和走过去的坐标一致
+    const tx = offsetX === undefined ? 0.5 : offsetX;
+    const ty = offsetY === undefined ? 0.5 : offsetY;
+    // 用像素而不是百分比：格子只有 aspect-ratio 没有显式高度，
+    // 百分比 top 在 ::after 上解析出来的基准会跑偏
+    cell.style.setProperty("--tx", (tx * cell.offsetWidth).toFixed(1) + "px");
+    cell.style.setProperty("--ty", (ty * cell.offsetHeight).toFixed(1) + "px");
     cell.classList.remove("is-tapped");
     void cell.offsetWidth; // 连续点同一格也能重播动画
     cell.classList.add("is-tapped");
@@ -977,7 +984,7 @@
     setWalking(true);
     if (actor.node) actor.node.classList.add("is-free");
     if (!(options && options.silent)) {
-      if (!(options && options.silent)) flashTarget(cellX, cellY);
+      if (!(options && options.silent)) flashTarget(cellX, cellY, offsetX, offsetY);
       setFeedback("正在走向 (" + target.x.toFixed(1) + ", " + target.y.toFixed(1) + ")…");
     }
   }
