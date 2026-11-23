@@ -17,8 +17,8 @@
   /** 自由移动的行走速度（格/秒）与机器人碰撞半径（格）。 */
   /** 机体目录：半径与速度跟后端 /api/robots 一致，改这里记得同步 sim.py。 */
   const ROBOTS = {
-    go2: { sprite: "dog", radius: 0.26, speed: 2.6, label: "机器狗" },
-    rover: { sprite: "rover", radius: 0.34, speed: 3.2, label: "轮式巡检车" },
+    go2: { sprite: "dog", radius: 0.26, speed: 3.2, label: "机器狗" },
+    rover: { sprite: "rover", radius: 0.34, speed: 3.8, label: "轮式巡检车" },
   };
 
   function robotSpec() {
@@ -942,6 +942,20 @@
   let pressPoint = null;
 
   /** 点地图：走过去。目标点落在格子内任意位置，绕障碍用 A*。 */
+  /** 点下去立刻给个回执：目标格中心闪一圈橙环，200ms 后自动摘掉。 */
+  function flashTarget(cellX, cellY) {
+    const metrics = currentState ? gridMetrics() : null;
+    if (!metrics) return;
+    const ring = document.createElement("span");
+    ring.className = "tap-ripple";
+    ring.style.left = metrics.originX + cellX * metrics.step + "px";
+    ring.style.top = metrics.originY + cellY * metrics.step + "px";
+    ring.style.width = metrics.cellPx + "px";
+    ring.style.height = metrics.cellPx + "px";
+    els.board.append(ring);
+    window.setTimeout(() => ring.remove(), 420);
+  }
+
   function walkTo(cellX, cellY, offsetX, offsetY, options) {
     if (!currentState) return;
     // 手动点地图说明用户要自己开，先把自动巡检停掉
@@ -966,6 +980,7 @@
     setWalking(true);
     if (actor.node) actor.node.classList.add("is-free");
     if (!(options && options.silent)) {
+      if (!(options && options.silent)) flashTarget(cellX, cellY);
       setFeedback("正在走向 (" + target.x.toFixed(1) + ", " + target.y.toFixed(1) + ")…");
     }
   }

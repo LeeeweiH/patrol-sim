@@ -1950,3 +1950,34 @@ kbd {
   cursor: pointer;
 }
 
+
+
+/* 点击回执：目标格上闪一圈橙环，让人立刻知道「这次点到了」 */
+.tap-ripple {
+  position: absolute;
+  transform: translate(-50%, -50%) rotateX(calc(-1 * var(--tilt)));
+  transform-origin: 50% 50%;
+  border: 2px solid var(--robot);
+  border-radius: 10px;
+  box-shadow: 0 0 0 6px rgba(236, 106, 36, 0.16);
+  pointer-events: none;
+  z-index: 5;
+  animation: tap-ripple 420ms ease-out forwards;
+}
+
+@keyframes tap-ripple {
+  0% {
+    opacity: 0.9;
+    scale: 0.74;
+  }
+  100% {
+    opacity: 0;
+    scale: 1.16;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tap-ripple {
+    animation-duration: 120ms;
+  }
+}
