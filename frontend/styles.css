@@ -1930,7 +1930,27 @@ kbd {
   user-select: none;
 }
 
-/* 牌子格确实按不动，光标明说 */
-.cell--block {
+/* 牌子格确实按不动，光标明说（用 .board 提高权重，压过下面那条 .cell） */
+.board .cell--block {
   cursor: not-allowed;
 }
+
+/* 装饰层一律不吃鼠标：光标只由格子决定，不会在「手」和「文字 I 形」之间闪 */
+.scan,
+.trace,
+.billboard,
+.axis,
+.cell--block .crate-tag,
+.cell--block .unit-tag {
+  pointer-events: none;
+}
+
+.stage,
+.board {
+  cursor: default;
+}
+
+.cell {
+  cursor: pointer;
+}
+
