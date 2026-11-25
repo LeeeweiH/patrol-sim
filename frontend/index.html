@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=44" />
+    <link rel="stylesheet" href="styles.css?v=46" />
   </head>
   <body>
     <header class="topbar">
@@ -110,7 +110,8 @@
           <span class="trail-item"><span class="trail-label">已扫描</span><b class="trail-value" id="fact-scanned">0</b><span class="trail-unit">格</span></span>
         </p>
 
-        <button class="patrol-btn" id="patrol-toggle" type="button" aria-pressed="false">
+        <div class="action-grid">
+<button class="patrol-btn" id="patrol-toggle" type="button" aria-pressed="false">
           <span class="patrol-dot" aria-hidden="true"></span>
           <span id="patrol-label">自动巡检</span>
         </button>
@@ -150,6 +151,7 @@
         </button>
 
         <button class="btn-ghost btn-ghost--wide" id="reports-open" type="button">查看巡检记录</button>
+        </div>
 
         <button class="switch" id="stick-toggle" type="button" role="switch" aria-checked="false">
           <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
@@ -288,6 +290,6 @@
     </div>
 
 
-  <script src="app.js?v=44"></script>
+  <script src="app.js?v=46"></script>
   </body>
 </html>

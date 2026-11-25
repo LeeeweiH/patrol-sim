@@ -1310,7 +1310,7 @@
       els.anomalyBtn.classList.toggle("is-on", on);
       els.anomalyBtn.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    if (els.anomalyLabel) els.anomalyLabel.textContent = on ? "标定中：点地板放异常" : "标定异常点位";
+    if (els.anomalyLabel) els.anomalyLabel.textContent = on ? "点地板放异常" : "标定异常点位";
     if (on) {
       buildPalette();
       setFeedback("把红三角拖到地板上，或先选类型再点地板；再点一次可移除。", "info");

@@ -2195,3 +2195,42 @@ kbd {
   border-color: var(--robot);
   box-shadow: 0 0 0 3px rgba(236, 106, 36, 0.16);
 }
+
+/* 巡检相关按钮：一行两个，窄屏再退回单列 */
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.action-grid > .patrol-btn,
+.action-grid > .btn-ghost {
+  width: 100%;
+  margin: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+  font-size: 13px;
+}
+
+.action-grid > #route-confirm,
+.action-grid > .action-grid__full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 420px) {
+  .action-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* hidden 要压过 .palette 的 display:flex，否则调色板永远挂在地图上 */
+.palette[hidden] {
+  display: none;
+}
+
+/* 复位按钮别占满整行：和提示并排 */
+.panel-head--ctrl .btn-ghost {
+  width: auto;
+  margin: 0;
+}
