@@ -2,6 +2,15 @@
 
 原生 HTML + CSS + JavaScript 实现的二维巡检仿真控制台。没有框架、没有构建工具、没有第三方 CDN 依赖，静态文件由 FastAPI 直接托管在根路径。
 
+## 手动标定巡检顺序
+
+`#route-edit` 进入标定模式后，`pointerdown` 走的是 `toggleRoutePoint()` 而不是 `walkTo()`：
+点地板追加地标、再点一次移除，禁区直接拒绝。序号来自 `renderRouteIndexes()` 生成的
+`.wp-index`；「确定」调用 `setRouteEdit(false)` 清掉序号但保留顺序（存 `localStorage`
+的 `patrol.route.v1`）。`startPatrol()` 里若 `customRoute` 非空就优先用它，
+否则退回 `planPatrolRoute()` 的自动规划。地图右下角 `#map-tally` 由 `updateTally()`
+维护「地标 / 已巡检」两个数字。
+
 ## 功能与环境
 
 - 已实现的页面和操作：开场选择地图与机器人（平时收在左上角「场景」按钮里）、8×8 地图查看（障碍、机器人位置与朝向）、点哪走哪的连续移动、状态反馈（坐标／朝向／运行状态、连接徽标、中文错误提示、重新读取状态）。

@@ -52,6 +52,12 @@
     sideToggleText: document.querySelector(".side-toggle-text"),
     placeholder: document.getElementById("placeholder"),
     mapMeta: document.getElementById("map-meta"),
+    routeEditBtn: document.getElementById("route-edit"),
+    routeEditLabel: document.getElementById("route-edit-label"),
+    routeConfirm: document.getElementById("route-confirm"),
+    mapTally: document.getElementById("map-tally"),
+    tallyTotal: document.getElementById("tally-total"),
+    tallyDone: document.getElementById("tally-done"),
     factPosition: document.getElementById("fact-position"),
     factHeading: document.getElementById("fact-heading"),
     factStatus: document.getElementById("fact-status"),
@@ -991,7 +997,12 @@
   const patrolLabel = document.getElementById("patrol-label");
   const patrolReportBtn = document.getElementById("patrol-report");
 
-  const patrol = {
+  /* ---- 手动标定的巡检顺序：用户在标定模式下依次点地板 ---- */
+  let customRoute = [];
+  let routeEdit = false;
+  const ROUTE_KEY = "patrol.route.v1";
+
+    const patrol = {
     on: false,
     queue: [],
     total: 0,
@@ -1001,6 +1012,7 @@
     steps0: 0,
     visited0: 0,
     lastSummary: null,
+    current: null,
   };
 
   /**
@@ -1087,7 +1099,9 @@
     walkTo(point.x, point.y, 0.5, 0.5, { silent: true });
     if (actor.target) {
       patrol.done += 1;
+      patrol.current = point;
       paintPatrolMarks();
+      updateTally(patrol.total, patrol.done);
       setFeedback(
         "巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…"
       );
@@ -1105,8 +1119,10 @@
     const visited = Math.max(0, trail.size - patrol.visited0);
     patrol.on = false;
     patrol.queue = [];
+    patrol.current = null;
     setPatrolButton(false);
     clearPatrolMarks();
+    updateTally(patrol.total, patrol.done);
     patrol.lastSummary = {
       seconds: seconds,
       steps: movedSteps,
@@ -1136,16 +1152,21 @@
   function paintPatrolMarks() {
     clearPatrolMarks();
     if (!patrol.on) return;
-    patrol.queue.forEach((point, index) => {
+    // 正在走过去的那个点位也要标（它已经出队了，不然会「还没到箭头就消失」）
+    const marks = [];
+    if (patrol.current) marks.push(patrol.current);
+    patrol.queue.forEach((point) => marks.push(point));
+    marks.forEach((point) => {
       const cell = els.board.querySelector(
         '.cell[data-x="' + point.x + '"][data-y="' + point.y + '"]'
       );
       if (!cell) return;
-      // 标记统一落在格子中心：巡检点是整格，不像手动点击有格内偏移
-      cell.style.setProperty("--tx", "50%");
-      cell.style.setProperty("--ty", "50%");
+      // 用像素而不是百分比：格子只有 aspect-ratio、没有显式高度，
+      // ::after 的百分比 top 会按 0 高度解析，箭头会跑到格子外面
+      cell.style.setProperty("--tx", (cell.offsetWidth / 2).toFixed(1) + "px");
+      cell.style.setProperty("--ty", (cell.offsetHeight / 2).toFixed(1) + "px");
       cell.classList.add("is-waypoint");
-      if (index === 0) cell.classList.add("is-target");
+      if (patrol.current && point === patrol.current) cell.classList.add("is-target");
     });
   }
 
@@ -1155,9 +1176,103 @@
     });
   }
 
+  /* ---- 地标计数与标定交互 ---- */
+
+  function updateTally(total, done) {
+    if (!els.mapTally) return;
+    els.mapTally.hidden = !(total > 0);
+    if (els.tallyTotal) els.tallyTotal.textContent = String(total || 0);
+    if (els.tallyDone) els.tallyDone.textContent = String(done || 0);
+  }
+
+  function saveCustomRoute() {
+    try {
+      window.localStorage.setItem(ROUTE_KEY, JSON.stringify(customRoute));
+    } catch (error) {
+      /* 隐私模式下写不进去，不影响本次使用 */
+    }
+  }
+
+  function loadCustomRoute() {
+    try {
+      const raw = window.localStorage.getItem(ROUTE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      customRoute = parsed
+        .filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y))
+        .map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+    } catch (error) {
+      customRoute = [];
+    }
+  }
+
+  function clearRouteIndexes() {
+    els.board.querySelectorAll(".wp-index").forEach((badge) => badge.remove());
+  }
+
+  function renderRouteIndexes() {
+    clearRouteIndexes();
+    if (!routeEdit) return;
+    customRoute.forEach((point, index) => {
+      const cell = els.board.querySelector(
+        '.cell[data-x="' + point.x + '"][data-y="' + point.y + '"]'
+      );
+      if (!cell) return;
+      const badge = document.createElement("span");
+      badge.className = "wp-index";
+      badge.textContent = String(index + 1);
+      cell.append(badge);
+    });
+  }
+
+  function toggleRoutePoint(cellX, cellY) {
+    if (isBlockedCell(cellX, cellY)) {
+      setFeedback("那一格立着「禁止通行」牌，不能当地标。", "warn");
+      return;
+    }
+    const index = customRoute.findIndex((p) => p.x === cellX && p.y === cellY);
+    if (index >= 0) {
+      customRoute.splice(index, 1);
+      setFeedback("已移除第 " + (index + 1) + " 个地标，现在共 " + customRoute.length + " 个。");
+    } else {
+      customRoute.push({ x: cellX, y: cellY });
+      setFeedback(
+        "已加第 " + customRoute.length + " 个地标，继续点地板，点「确定」结束标定。"
+      );
+    }
+    renderRouteIndexes();
+    updateTally(customRoute.length, 0);
+    saveCustomRoute();
+  }
+
+  function setRouteEdit(on) {
+    routeEdit = on;
+    if (els.routeEditBtn) {
+      els.routeEditBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      els.routeEditBtn.classList.toggle("is-on", on);
+    }
+    if (els.routeEditLabel) {
+      els.routeEditLabel.textContent = on ? "标定中：点地板加点位" : "标定巡检顺序";
+    }
+    if (els.routeConfirm) els.routeConfirm.hidden = !on;
+    if (on) {
+      if (patrol.on) stopPatrol("已停止自动巡检：开始标定新顺序。");
+      renderRouteIndexes();
+      setFeedback("标定模式：按顺序点地板（禁区点不了），点「确定」结束。");
+    } else {
+      clearRouteIndexes();
+      setFeedback("巡检顺序已保存：" + customRoute.length + " 个地标。");
+    }
+    updateTally(customRoute.length, 0);
+  }
+
   function startPatrol() {
     if (!currentState || patrol.on) return;
-    const route = planPatrolRoute(currentState, { x: actor.x, y: actor.y });
+    if (routeEdit) setRouteEdit(false);
+    const route = customRoute.length
+      ? customRoute.map((p) => ({ x: p.x, y: p.y }))
+      : planPatrolRoute(currentState, { x: actor.x, y: actor.y });
     if (!route.length) {
       setFeedback("没有可以巡检的格子。", "warn");
       return;
@@ -1174,6 +1289,7 @@
     patrol.visited0 = trail.size;
     patrol.on = true;
     setPatrolButton(true);
+    updateTally(patrol.total, 0);
     paintPatrolMarks();
     startLoop();
     setFeedback(
@@ -1194,6 +1310,7 @@
     setPatrolButton(false);
     // 中途停下来就没有完整统计了，把上一轮的结果和导出按钮一起收掉
     patrol.lastSummary = null;
+    patrol.current = null;
     if (patrolReportBtn) patrolReportBtn.hidden = true;
     clearPatrolMarks();
     if (reason) setFeedback(reason, "warn");
@@ -2235,6 +2352,10 @@
       if (!started || !currentState) return;
       const point = pointIn(cellUnder(event.clientX, event.clientY), event.clientX, event.clientY);
       if (!point) return;
+      if (routeEdit) {
+        toggleRoutePoint(point.cellX, point.cellY);
+        return;
+      }
       pressPoint = point;
       try {
         els.board.setPointerCapture(event.pointerId);
@@ -2281,6 +2402,12 @@
       els.factVisited.textContent = "0";
       loadState({ initial: !currentState });
     });
+    if (els.routeEditBtn) {
+      els.routeEditBtn.addEventListener("click", () => setRouteEdit(!routeEdit));
+    }
+    if (els.routeConfirm) {
+      els.routeConfirm.addEventListener("click", () => setRouteEdit(false));
+    }
     els.openScene.addEventListener("click", openSetup);
     els.startGo.addEventListener("click", beginRun);
 
@@ -2296,6 +2423,7 @@
       if (!started || isTypingTarget(event.target)) return;
       if (!els.start.hidden) return;
       if (stick.on) return;
+      if (routeEdit) return;
 
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
@@ -2327,6 +2455,8 @@
     restoreSide();
     restoreScan();
     restoreTrace();
+    loadCustomRoute();
+    updateTally(customRoute.length, 0);
     syncControls();
     applyFreeTexts();
     // 扫描扇形与轨迹要跟着角色走：单独一层 rAF，和移动循环解耦，
