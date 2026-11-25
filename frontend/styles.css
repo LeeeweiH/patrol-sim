@@ -2234,3 +2234,33 @@ kbd {
   width: auto;
   margin: 0;
 }
+
+/* 自定义异常 chip：三角形右上角挂一个删除叉 */
+.chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip-del {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-del:hover {
+  background: #c62828;
+  border-color: #c62828;
+  color: #fff;
+}

@@ -1298,6 +1298,8 @@
     if (!els.chips) return;
     els.chips.replaceChildren();
     allAnomalyTypes().forEach((type) => {
+      const wrap = document.createElement("span");
+      wrap.className = "chip-wrap";
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "chip";
@@ -1309,7 +1311,25 @@
         els.chips.querySelectorAll(".chip").forEach((n) => n.classList.toggle("is-armed", n === chip));
         setFeedback("已选定「" + type + "」，点地图放置。", "info");
       });
-      els.chips.append(chip);
+      wrap.append(chip);
+      if (customTypes.indexOf(type) !== -1) {
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "chip-del";
+        del.textContent = "×";
+        del.title = "删除自定义异常「" + type + "」";
+        del.setAttribute("aria-label", del.title);
+        del.addEventListener("click", (event) => {
+          event.stopPropagation();
+          customTypes = customTypes.filter((t) => t !== type);
+          saveCustomTypes();
+          if (armedType === type) armedType = ANOMALY_TYPES[0];
+          buildPalette();
+          setFeedback("已删除自定义异常「" + type + "」。", "info");
+        });
+        wrap.append(del);
+      }
+      els.chips.append(wrap);
     });
     const add = document.createElement("button");
     add.type = "button";
