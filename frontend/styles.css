@@ -1957,4 +1957,54 @@ kbd {
     animation-duration: 200ms;
   }
 }
+
+/* 巡检点位：同一支下指箭头，排队中的点位暗一点、站定不闪；当前目标更亮并轻轻呼吸 */
+.cell.is-waypoint::after {
+  content: "";
+  position: absolute;
+  left: var(--tx, 50%);
+  top: var(--ty, 50%);
+  width: 26%;
+  height: 32%;
+  margin-left: -13%;
+  margin-top: -16%;
+  background: var(--robot);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  opacity: 0.45;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.cell.is-waypoint.is-target::after {
+  content: "";
+  position: absolute;
+  left: var(--tx, 50%);
+  top: var(--ty, 50%);
+  background: var(--robot);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  pointer-events: none;
+  width: 34%;
+  height: 42%;
+  margin-left: -17%;
+  margin-top: -21%;
+  opacity: 1;
+  filter: drop-shadow(0 2px 4px rgba(20, 32, 42, 0.35));
+  z-index: 6;
+  animation: waypoint-breathe 1.5s ease-in-out infinite;
+}
+
+@keyframes waypoint-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-8%) scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell.is-waypoint.is-target::after {
+    animation: none;
+  }
 }

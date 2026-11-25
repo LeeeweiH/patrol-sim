@@ -1087,6 +1087,7 @@
     walkTo(point.x, point.y, 0.5, 0.5, { silent: true });
     if (actor.target) {
       patrol.done += 1;
+      paintPatrolMarks();
       setFeedback(
         "巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…"
       );
@@ -1105,6 +1106,7 @@
     patrol.on = false;
     patrol.queue = [];
     setPatrolButton(false);
+    clearPatrolMarks();
     patrol.lastSummary = {
       seconds: seconds,
       steps: movedSteps,
@@ -1128,6 +1130,31 @@
     );
   }
 
+  /* ---- 巡检点位标记：复用点击回执那个下指箭头 ---- */
+
+  /** 给当前排队的点位挂上 is-waypoint，队首那颗再挂 is-target（更亮、会呼吸）。 */
+  function paintPatrolMarks() {
+    clearPatrolMarks();
+    if (!patrol.on) return;
+    patrol.queue.forEach((point, index) => {
+      const cell = els.board.querySelector(
+        '.cell[data-x="' + point.x + '"][data-y="' + point.y + '"]'
+      );
+      if (!cell) return;
+      // 标记统一落在格子中心：巡检点是整格，不像手动点击有格内偏移
+      cell.style.setProperty("--tx", "50%");
+      cell.style.setProperty("--ty", "50%");
+      cell.classList.add("is-waypoint");
+      if (index === 0) cell.classList.add("is-target");
+    });
+  }
+
+  function clearPatrolMarks() {
+    els.board.querySelectorAll(".cell.is-waypoint").forEach((cell) => {
+      cell.classList.remove("is-waypoint", "is-target");
+    });
+  }
+
   function startPatrol() {
     if (!currentState || patrol.on) return;
     const route = planPatrolRoute(currentState, { x: actor.x, y: actor.y });
@@ -1147,6 +1174,7 @@
     patrol.visited0 = trail.size;
     patrol.on = true;
     setPatrolButton(true);
+    paintPatrolMarks();
     startLoop();
     setFeedback(
       "自动巡检开始：" +
@@ -1167,6 +1195,7 @@
     // 中途停下来就没有完整统计了，把上一轮的结果和导出按钮一起收掉
     patrol.lastSummary = null;
     if (patrolReportBtn) patrolReportBtn.hidden = true;
+    clearPatrolMarks();
     if (reason) setFeedback(reason, "warn");
   }
 
