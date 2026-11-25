@@ -1163,7 +1163,39 @@
 
   /* ---- 异常点位：火 / 坑 / 自定义字，红三角标 ---- */
   const ANOMALY_KEY = "patrol.anomalies.v1";
+  const ANOMALY_TYPE_KEY = "patrol.anomalyTypes.v1";
   const ANOMALY_TYPES = ["火", "坑"];
+  let customTypes = [];        // 用户自己加的类型，持久化在 localStorage
+
+  function loadCustomTypes() {
+    try {
+      const raw = window.localStorage.getItem(ANOMALY_TYPE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      customTypes = Array.isArray(arr) ? arr.filter((t) => typeof t === "string" && t) : [];
+    } catch (error) {
+      customTypes = [];
+    }
+  }
+
+  function saveCustomTypes() {
+    try {
+      window.localStorage.setItem(ANOMALY_TYPE_KEY, JSON.stringify(customTypes));
+    } catch (error) {
+      /* 存不了就算了，本页仍然可用 */
+    }
+  }
+
+  /** 调色板要显示的全部类型：预设 + 自定义 + 已放置过但不在前两者里的 */
+  function allAnomalyTypes() {
+    const out = [];
+    ANOMALY_TYPES.concat(customTypes).forEach((t) => {
+      if (out.indexOf(t) === -1) out.push(t);
+    });
+    anomalies.forEach((a) => {
+      if (out.indexOf(a.type) === -1) out.push(a.type);
+    });
+    return out;
+  }
   let anomalies = [];          // [{ x, y, type, detected }]
   let anomalyEdit = false;     // 「标定异常点位」模式
   let armedType = ANOMALY_TYPES[0];
@@ -1265,9 +1297,7 @@
   function buildPalette() {
     if (!els.chips) return;
     els.chips.replaceChildren();
-    ANOMALY_TYPES.concat(
-      Array.from(new Set(anomalies.map((a) => a.type))).filter((t) => ANOMALY_TYPES.indexOf(t) === -1)
-    ).forEach((type) => {
+    allAnomalyTypes().forEach((type) => {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "chip";
@@ -1292,6 +1322,10 @@
       const trimmed = name.trim().slice(0, 3);
       if (!trimmed) return;
       armedType = trimmed;
+      if (customTypes.indexOf(trimmed) === -1) {
+        customTypes.push(trimmed);
+        saveCustomTypes();
+      }
       buildPalette();
       setFeedback("已添加异常类型「" + trimmed + "」，点地图放置。", "success");
     });
@@ -2720,6 +2754,7 @@
     restoreScan();
     restoreTrace();
     loadCustomRoute();
+    loadCustomTypes();
     loadAnomalies();
     buildPalette();
     updateTally(customRoute.length, 0);
