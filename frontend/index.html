@@ -9,7 +9,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec6a24'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=42" />
+    <link rel="stylesheet" href="styles.css?v=44" />
   </head>
   <body>
     <header class="topbar">
@@ -51,6 +51,11 @@
           <p class="placeholder" id="placeholder">正在加载地图…</p>
         </div>
 
+        <div class="palette" id="anomaly-palette" hidden>
+          <span class="palette-title">拖到地图上放置</span>
+          <div class="palette-chips" id="anomaly-chips"></div>
+        </div>
+
         <ul class="legend" aria-label="地图图例">
           <li><span class="swatch swatch-free" aria-hidden="true"></span>可通行区域</li>
           <li><span class="swatch swatch-visited" aria-hidden="true"></span>已走过</li>
@@ -60,7 +65,8 @@
         </ul>
 
         <p class="map-tally" id="map-tally" hidden>
-          地标 <b id="tally-total">0</b> 个 · 已巡检 <b id="tally-done">0</b> 个
+          地标 <b id="tally-total">0</b> 个 · 已巡检 <b id="tally-done">0</b> 个 ·
+          异常 <b id="tally-anomaly">0</b> 个
         </p>
       </section>
 
@@ -77,9 +83,10 @@
       </button>
 
       <section class="panel side-panel" id="side-panel" aria-labelledby="control-title">
-        <div class="panel-head">
-          <h2 id="control-title">手动控制</h2>
+        <div class="panel-head panel-head--ctrl">
+          <h2 id="control-title" class="visually-hidden">手动控制</h2>
           <p class="hint" id="control-hint">点击或长按地图走过去</p>
+          <button class="btn-ghost btn-ghost--compact" id="reload" type="button" disabled>复位</button>
         </div>
 
         <dl class="facts">
@@ -108,6 +115,11 @@
           <span id="patrol-label">自动巡检</span>
         </button>
 
+        <button class="patrol-btn patrol-btn--manual" id="patrol-manual" type="button">
+          <span class="patrol-dot" aria-hidden="true"></span>
+          <span id="patrol-manual-label">手动巡检</span>
+        </button>
+
         <button
           class="patrol-btn patrol-btn--route"
           id="route-edit"
@@ -116,6 +128,16 @@
         >
           <span class="patrol-dot" aria-hidden="true"></span>
           <span id="route-edit-label">标定巡检顺序</span>
+        </button>
+
+        <button
+          class="patrol-btn patrol-btn--anomaly"
+          id="anomaly-edit"
+          type="button"
+          aria-pressed="false"
+        >
+          <span class="patrol-dot" aria-hidden="true"></span>
+          <span id="anomaly-edit-label">标定异常点位</span>
         </button>
 
         <button class="btn-ghost btn-ghost--wide" id="route-confirm" type="button" hidden>
@@ -166,8 +188,6 @@
           </div>
           <p class="stick-cap">按住拖动，松手就停</p>
         </div>
-
-        <button class="btn-ghost" id="reload" type="button" disabled>重新读取状态</button>
 
         <p class="feedback" id="feedback" role="status" aria-live="polite">正在连接服务…</p>
 
@@ -268,6 +288,6 @@
     </div>
 
 
-  <script src="app.js?v=42"></script>
+  <script src="app.js?v=44"></script>
   </body>
 </html>

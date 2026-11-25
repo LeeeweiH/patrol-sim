@@ -2058,3 +2058,140 @@ kbd {
   color: var(--robot);
   background: rgba(236, 106, 36, 0.08);
 }
+
+/* ---------- 复位按钮与无标题面板 ---------- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.panel-head--ctrl {
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-head--ctrl .hint {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.btn-ghost--compact {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  font-size: 13px;
+  border-radius: 9px;
+}
+
+/* ---------- 异常三角标 ---------- */
+.anomaly {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 58%;
+  height: 50%;
+  margin-left: -29%;
+  margin-top: -27%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 7%;
+  background: #c62828;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  z-index: 4;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(20, 32, 42, 0.28));
+}
+
+.anomaly.is-detected {
+  background: #8d8d8d;
+  opacity: 0.7;
+}
+
+/* ---------- 异常调色板 ---------- */
+.palette {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  background: var(--paper, #fff);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  z-index: 7;
+}
+
+.palette-title {
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.palette-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding-bottom: 4px;
+  border: 0;
+  background: #c62828;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+}
+
+.chip.is-armed {
+  outline: 2px solid var(--robot);
+  outline-offset: 2px;
+  filter: drop-shadow(0 0 6px rgba(236, 106, 36, 0.5));
+}
+
+.chip--add {
+  width: auto;
+  height: 26px;
+  padding: 0 9px;
+  background: #fff;
+  color: var(--ink);
+  border: 1px dashed var(--ink-3);
+  border-radius: 8px;
+  clip-path: none;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* 让「头尾翻转」是转过去而不是闪一下 */
+.sprite {
+  transition: transform 200ms ease;
+}
+
+.patrol-btn--manual.is-on,
+.patrol-btn--anomaly.is-on {
+  border-color: var(--robot);
+  box-shadow: 0 0 0 3px rgba(236, 106, 36, 0.16);
+}
