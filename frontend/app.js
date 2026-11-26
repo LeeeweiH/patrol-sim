@@ -444,6 +444,12 @@
 
   /* ---------------------------------------------------------------- 碰撞 */
 
+  /** 只认场景里的「禁止通行」牌：渲染那个牌子图标用它，异常点位不能借用这个外观。 */
+  function isObstacleCell(x, y) {
+    if (!currentState) return false;
+    return currentState.grid.obstacles.some((item) => item[0] === x && item[1] === y);
+  }
+
   function isBlockedCell(x, y) {
     if (!currentState) return false;
     if (currentState.grid.obstacles.some((item) => item[0] === x && item[1] === y)) return true;
@@ -1575,7 +1581,7 @@
 
   function toggleRoutePoint(cellX, cellY) {
     if (isBlockedCell(cellX, cellY)) {
-      setFeedback("那一格立着「禁止通行」牌，不能当地标。", "warn");
+      setFeedback("那一格已经不让站了：立着牌子或者有异常点位。", "warn");
       return;
     }
     const index = customRoute.findIndex((p) => p.x === cellX && p.y === cellY);
@@ -2107,7 +2113,7 @@
 
     let label = "第 " + y + " 行第 " + x + " 列，可通行";
 
-    if (isBlockedCell(x, y)) {
+    if (isObstacleCell(x, y)) {
       cell.classList.add("cell--block");
       label = "第 " + y + " 行第 " + x + " 列，禁止通行";
 
