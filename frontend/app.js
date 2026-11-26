@@ -52,6 +52,12 @@
     sideToggleText: document.querySelector(".side-toggle-text"),
     placeholder: document.getElementById("placeholder"),
     mapMeta: document.getElementById("map-meta"),
+    routeEditBtn: document.getElementById("route-edit"),
+    routeEditLabel: document.getElementById("route-edit-label"),
+    routeConfirm: document.getElementById("route-confirm"),
+    mapTally: document.getElementById("map-tally"),
+    tallyTotal: document.getElementById("tally-total"),
+    tallyDone: document.getElementById("tally-done"),
     factPosition: document.getElementById("fact-position"),
     factHeading: document.getElementById("fact-heading"),
     factStatus: document.getElementById("fact-status"),
@@ -59,6 +65,13 @@
     factVisited: document.getElementById("fact-visited"),
     feedback: document.getElementById("feedback"),
     reload: document.getElementById("reload"),
+    manualBtn: document.getElementById("patrol-manual"),
+    manualLabel: document.getElementById("patrol-manual-label"),
+    anomalyBtn: document.getElementById("anomaly-edit"),
+    anomalyLabel: document.getElementById("anomaly-edit-label"),
+    palette: document.getElementById("anomaly-palette"),
+    chips: document.getElementById("anomaly-chips"),
+    tallyAnomaly: document.getElementById("tally-anomaly"),
     conn: document.getElementById("conn"),
     connText: document.getElementById("conn-text"),
     controlHint: document.getElementById("control-hint"),
@@ -399,6 +412,9 @@
 
   function applyActorTransform() {
     if (!actor.node) return;
+    const prevX = typeof actor.lastX === "number" ? actor.lastX : actor.x;
+    actor.vx = actor.x - prevX;
+    actor.lastX = actor.x;
     const metrics = gridMetrics();
     if (!metrics) return;
     const px = metrics.originX + actor.x * metrics.step;
@@ -411,7 +427,11 @@
       actor.node.style.setProperty("--heading-deg", HEADING_DEG[actor.heading] + "deg");
     }
     if (actor.sprite) {
-      actor.sprite.style.setProperty("--flip", String(HEADING_FLIP[actor.heading]));
+      // 头朝哪边看水平位移：向右为正、向左为负；静止时保留上一次的朝向
+      if (typeof actor.vx === "number" && Math.abs(actor.vx) > 0.002) {
+        actor.flip = actor.vx < 0 ? -1 : 1;
+      }
+      actor.sprite.style.setProperty("--flip", String(actor.flip || HEADING_FLIP[actor.heading]));
       actor.sprite.style.setProperty("--turn", HEADING_TURN[actor.heading] + "deg");
     }
   }
@@ -424,9 +444,20 @@
 
   /* ---------------------------------------------------------------- 碰撞 */
 
-  function isBlockedCell(x, y) {
+  /** 只认场景里的「禁止通行」牌：渲染那个牌子图标用它，异常点位不能借用这个外观。 */
+  function isObstacleCell(x, y) {
     if (!currentState) return false;
     return currentState.grid.obstacles.some((item) => item[0] === x && item[1] === y);
+  }
+
+  function isBlockedCell(x, y) {
+    if (!currentState) return false;
+    const tx = Number(x);
+    const ty = Number(y);
+    if (currentState.grid.obstacles.some((item) => Number(item[0]) === tx && Number(item[1]) === ty)) return true;
+    // 异常点位等同障碍：自动巡检、寻路和手动移动都不能穿过它
+    // 注意：cell.dataset 给出来的是字符串，巡检点位存的是数字，比较前统一转成数字
+    return anomalies.some((a) => Number(a.x) === tx && Number(a.y) === ty);
   }
 
   /** 圆形机器人 vs 正方形障碍格：贴边滑行靠这个判定。 */
@@ -439,6 +470,16 @@
     for (let i = 0; i < grid.obstacles.length; i += 1) {
       const bx = grid.obstacles[i][0];
       const by = grid.obstacles[i][1];
+      const nx = Math.max(bx - 0.5, Math.min(x, bx + 0.5));
+      const ny = Math.max(by - 0.5, Math.min(y, by + 0.5));
+      const dx = x - nx;
+      const dy = y - ny;
+      const radius = robotRadius();
+      if (dx * dx + dy * dy < radius * radius) return true;
+    }
+    for (let i = 0; i < anomalies.length; i += 1) {
+      const bx = anomalies[i].x;
+      const by = anomalies[i].y;
       const nx = Math.max(bx - 0.5, Math.min(x, bx + 0.5));
       const ny = Math.max(by - 0.5, Math.min(y, by + 0.5));
       const dx = x - nx;
@@ -568,6 +609,14 @@
       const maxY = oy + 0.5 + r;
       if (segmentHitsRect(ax, ay, bx, by, minX, minY, maxX, maxY)) return true;
     }
+    // 异常点位也按「实心方块 + 半径」膨胀，不能贴着穿过去
+    for (let i = 0; i < anomalies.length; i += 1) {
+      const minX = anomalies[i].x - 0.5 - r;
+      const maxX = anomalies[i].x + 0.5 + r;
+      const minY = anomalies[i].y - 0.5 - r;
+      const maxY = anomalies[i].y + 0.5 + r;
+      if (segmentHitsRect(ax, ay, bx, by, minX, minY, maxX, maxY)) return true;
+    }
     return false;
   }
 
@@ -615,6 +664,18 @@
     els.keys.forEach((button) => {
       if (button.dataset.direction === direction) button.classList.toggle("is-held", on);
     });
+  }
+
+  /** 标定巡检顺序 / 标定异常点位 期间，机器人一律不许动。 */
+  function isCalibrating() {
+    return Boolean(routeEdit || anomalyEdit);
+  }
+
+  function stopMovingNow() {
+    if (!actor) return;
+    actor.path.length = 0;
+    actor.target = null;
+    if (actor.walking) setWalking(false);
   }
 
   function heldVector() {
@@ -761,6 +822,11 @@
 
     if (!started || mode !== "free" || !actor.node) return;
 
+    if (isCalibrating()) {
+      if (actor.walking || actor.path.length || actor.target) stopMovingNow();
+      return;
+    }
+
     let moving = false;
     const dir = heldVector();
     if (dir) {
@@ -823,6 +889,7 @@
       trail.add(key);
       steps += 1;
     }
+    checkManualHit(cellX, cellY);
     paintTrail();
     els.factSteps.textContent = String(steps);
     els.factVisited.textContent = String(trail.size);
@@ -958,10 +1025,14 @@
 
   function walkTo(cellX, cellY, offsetX, offsetY, options) {
     if (!currentState) return;
+    if (isCalibrating()) {
+      setFeedback("标定模式下机器人不动，先结束标定再走。", "warn");
+      return;
+    }
     // 手动点地图说明用户要自己开，先把自动巡检停掉
     if (patrol.on && !(options && options.silent)) stopPatrol("已停止自动巡检：转手动控制。");
     if (isBlockedCell(cellX, cellY)) {
-      setFeedback("那一格立着「禁止通行」牌，站不了人。", "warn");
+      setFeedback("那一格过不去：立着牌子，或者有异常点位。", "warn");
       return;
     }
 
@@ -991,7 +1062,12 @@
   const patrolLabel = document.getElementById("patrol-label");
   const patrolReportBtn = document.getElementById("patrol-report");
 
-  const patrol = {
+  /* ---- 手动标定的巡检顺序：用户在标定模式下依次点地板 ---- */
+  let customRoute = [];
+  let routeEdit = false;
+  const ROUTE_KEY = "patrol.route.v1";
+
+    const patrol = {
     on: false,
     queue: [],
     total: 0,
@@ -1001,6 +1077,7 @@
     steps0: 0,
     visited0: 0,
     lastSummary: null,
+    current: null,
   };
 
   /**
@@ -1087,6 +1164,9 @@
     walkTo(point.x, point.y, 0.5, 0.5, { silent: true });
     if (actor.target) {
       patrol.done += 1;
+      patrol.current = point;
+      paintPatrolMarks();
+      updateTally(patrol.total, patrol.done);
       setFeedback(
         "巡检中 " + patrol.done + "/" + patrol.total + "：前往第 " + patrol.done + " 个点位…"
       );
@@ -1104,7 +1184,10 @@
     const visited = Math.max(0, trail.size - patrol.visited0);
     patrol.on = false;
     patrol.queue = [];
+    patrol.current = null;
     setPatrolButton(false);
+    clearPatrolMarks();
+    updateTally(patrol.total, patrol.done);
     patrol.lastSummary = {
       seconds: seconds,
       steps: movedSteps,
@@ -1128,9 +1211,547 @@
     );
   }
 
+  /* ---- 异常点位：火 / 坑 / 自定义字，红三角标 ---- */
+  const ANOMALY_KEY = "patrol.anomalies.v1"; // 旧版全局键，仅用于一次性清理
+  const ANOMALY_PREFIX = "patrol.anomalies.v2."; // 新版按场景分开存
+  let anomaliesScene = "";
+
+  /** 每张地图一份：换地图/清缓存时不会把别的图的标记带过来。 */
+  function anomalyKey() {
+    return ANOMALY_PREFIX + (currentSceneId || "default");
+  }
+  const ANOMALY_TYPE_KEY = "patrol.anomalyTypes.v1";
+  const ANOMALY_TYPES = ["火", "坑"];
+  let customTypes = [];        // 用户自己加的类型，持久化在 localStorage
+  let hiddenTypes = [];        // 被删掉的内置类型（火/坑），也能持久化，删了就别再冒出来
+  const HIDDEN_TYPE_KEY = "patrol.anomalyTypes.hidden.v1";
+
+  function loadCustomTypes() {
+    try {
+      const raw = window.localStorage.getItem(ANOMALY_TYPE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      customTypes = Array.isArray(arr) ? arr.filter((t) => typeof t === "string" && t) : [];
+    } catch (error) {
+      customTypes = [];
+    }
+  }
+
+  /**
+   * 「火」「坑」是出厂图标：这一轮里可以删掉腾地方，但刷新必须回来。
+   * 所以隐藏列表只在内存里，不落盘；顺手把上一版存下的残留键清掉。
+   */
+  function loadHiddenTypes() {
+    hiddenTypes = [];
+    try {
+      window.localStorage.removeItem(HIDDEN_TYPE_KEY);
+    } catch (error) {
+      /* 清不了就算了 */
+    }
+  }
+
+  function saveHiddenTypes() {
+    /* 故意不落盘：内置图标刷新后一定回到调色板 */
+  }
+
+  function saveCustomTypes() {
+    try {
+      window.localStorage.setItem(ANOMALY_TYPE_KEY, JSON.stringify(customTypes));
+    } catch (error) {
+      /* 存不了就算了，本页仍然可用 */
+    }
+  }
+
+  /** 调色板要显示的全部类型：预设 + 自定义 + 已放置过但不在前两者里的 */
+  function allAnomalyTypes() {
+    const out = [];
+    ANOMALY_TYPES.filter((t) => hiddenTypes.indexOf(t) === -1)
+      .concat(customTypes)
+      .forEach((t) => {
+        if (out.indexOf(t) === -1) out.push(t);
+      });
+    anomalies.forEach((a) => {
+      if (out.indexOf(a.type) === -1) out.push(a.type);
+    });
+    return out;
+  }
+  let exportSeq = 0;           // 本次会话导出了几份报告，用来在文件名里标「第几次」
+  let anomalies = [];          // [{ x, y, type, detected }]
+  let anomalyEdit = false;     // 「标定异常点位」模式
+  let armedType = ANOMALY_TYPES[0]; // 会被 buildPalette 按可见类型纠正
+  let anomalyDrag = null;      // 拖动中的那个 chip
+
+  /** 异常点位是「这一轮标定」的产物，不落盘：刷新即清空，不会冒出上一轮的标记。 */
+  function clearStoredAnomalies() {
+    try {
+      const store = window.localStorage;
+      const doomed = [];
+      // 注意：Object.keys(localStorage) 在部分浏览器里拿不到键，必须用 key(i) 遍历
+      for (let i = 0; i < store.length; i += 1) {
+        const k = store.key(i);
+        if (k && k.indexOf("patrol.anomalies") === 0) doomed.push(k);
+      }
+      doomed.forEach((k) => store.removeItem(k));
+    } catch (error) {
+      /* 清不了就算了 */
+    }
+  }
+
+  function loadAnomalies() {
+    anomalies = [];
+    clearStoredAnomalies();
+  }
+
+  function saveAnomalies() {
+    /* 故意不写 localStorage */
+  }
+
+  function anomalyAt(x, y) {
+    const tx = Number(x);
+    const ty = Number(y);
+    return anomalies.find((a) => Number(a.x) === tx && Number(a.y) === ty) || null;
+  }
+
+  function updateAnomalyTally() {
+    if (!els.tallyAnomaly) return;
+    els.tallyAnomaly.textContent = String(anomalies.filter((a) => a.detected).length);
+  }
+
+  /** 把异常标画到格子上（每次重建地图后调用） */
+  /** 地图换了就把这一张图的异常读回来（渲染前调用）。 */
+  function syncAnomaliesForScene() {
+    if (anomaliesScene === currentSceneId) return;
+    anomaliesScene = currentSceneId;
+    // 换地图等于换一轮：上一张图的异常不带过来，历史残留键也一并清掉
+    anomalies = [];
+    clearStoredAnomalies();
+    saveAnomalies();
+  }
+
+  function renderAnomalies() {
+    if (!els.board) return;
+    syncAnomaliesForScene();
+    els.board.querySelectorAll(".cell .anomaly").forEach((node) => node.remove());
+    anomalies.forEach((a) => {
+      const cell = els.board.querySelector('.cell[data-x="' + a.x + '"][data-y="' + a.y + '"]');
+      if (!cell) return;
+      const badge = document.createElement("span");
+      badge.className = "anomaly";
+      badge.textContent = a.type;
+      badge.setAttribute("aria-hidden", "true");
+      cell.append(badge);
+    });
+    updateAnomalyTally();
+    detectAnomalies();
+  }
+
+  function toggleAnomaly(cellX, cellY, type) {
+    if (currentState && currentState.grid.obstacles.some((o) => o[0] === cellX && o[1] === cellY)) {
+      setFeedback("那一格立着「禁止通行」牌，不能放异常。", "warn");
+      return;
+    }
+    if (Math.round(actor.x) === cellX && Math.round(actor.y) === cellY) {
+      setFeedback("机器人正踩在这一格，先挪开再放异常。", "warn");
+      return;
+    }
+    const found = anomalyAt(cellX, cellY);
+    if (found) {
+      anomalies = anomalies.filter((a) => a !== found);
+      setFeedback("移除了 (" + cellX + ", " + cellY + ") 的「" + found.type + "」。", "info");
+    } else {
+      anomalies = anomalies.concat([{ x: cellX, y: cellY, type: type, detected: false }]);
+      setFeedback("(" + cellX + ", " + cellY + ") 放了一个「" + type + "」。", "success");
+    }
+    saveAnomalies();
+    renderAnomalies();
+    // 放/撤异常后立刻体检巡检点位，不合规的当场剔除
+    const dropped = pruneRouteAgainstAnomalies();
+    if (dropped) {
+      setFeedback(
+        "(" + cellX + ", " + cellY + ") 放了「" + type + "」，同时剔除了 " + dropped + " 个走不到的巡检点位。",
+        "warn"
+      );
+    }
+  }
+
+  function losClear(ax, ay, bx, by, blocked) {
+    const dist = Math.hypot(bx - ax, by - ay);
+    const steps = Math.max(2, Math.ceil(dist / 0.1));
+    for (let i = 1; i < steps; i += 1) {
+      const t = i / steps;
+      const gx = Math.round(ax + (bx - ax) * t);
+      const gy = Math.round(ay + (by - ay) * t);
+      if (blocked.has(gx + "," + gy)) return false;
+    }
+    return true;
+  }
+
+  /** 雷达扫到异常格中心 → 计一次「已发现」 */
+  function emitAnomalyVisibility(visible) {
+    if (!els.board) return;
+    els.board.querySelectorAll(".cell .anomaly").forEach((node) => {
+      const cell = node.parentElement;
+      const key = cell.dataset.x + "," + cell.dataset.y;
+      node.classList.toggle("is-near", visible.has(key));
+    });
+  }
+
+  function detectAnomalies() {
+    if (!currentState || !scanOn || !anomalies.length) {
+      emitAnomalyVisibility(new Set());
+      return;
+    }
+    const blocked = obstacleSet();
+    const visible = new Set();
+    let changed = false;
+    anomalies.forEach((a) => {
+      if (Math.hypot(a.x - actor.x, a.y - actor.y) > SCAN_RANGE) return;
+      if (!losClear(actor.x, actor.y, a.x, a.y, blocked)) return;
+      visible.add(a.x + "," + a.y);
+      if (!a.detected) {
+        a.detected = true;
+        changed = true;
+        setFeedback("雷达发现异常：(" + a.x + ", " + a.y + ") 的「" + a.type + "」。", "warn");
+      }
+    });
+    emitAnomalyVisibility(visible);
+    if (changed) saveAnomalies();
+  }
+
+  function buildPalette() {
+    if (!els.chips) return;
+    els.chips.replaceChildren();
+    allAnomalyTypes().forEach((type) => {
+      const wrap = document.createElement("span");
+      wrap.className = "chip-wrap";
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.dataset.type = type;
+      chip.textContent = type;
+      chip.title = "拖动放置「" + type + "」，或先点它再点地板";
+      chip.addEventListener("click", () => {
+        armedType = type;
+        els.chips.querySelectorAll(".chip").forEach((n) => n.classList.toggle("is-armed", n === chip));
+        setFeedback("已选定「" + type + "」，点地图放置。", "info");
+      });
+      wrap.append(chip);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "chip-del";
+      del.textContent = "×";
+      del.title = "删除「" + type + "」图标，并清掉地图上所有该异常点位";
+      del.setAttribute("aria-label", del.title);
+      del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        // 图标本身从调色板拿掉：自定义的从 customTypes 删，内置的进 hiddenTypes
+        customTypes = customTypes.filter((t) => t !== type);
+        if (ANOMALY_TYPES.indexOf(type) !== -1 && hiddenTypes.indexOf(type) === -1) {
+          hiddenTypes.push(type);
+        }
+        saveCustomTypes();
+        saveHiddenTypes();
+        // 地图上这个类型的所有点位一起删掉
+        const before = anomalies.length;
+        anomalies = anomalies.filter((a) => a.type !== type);
+        const wiped = before - anomalies.length;
+        if (wiped) {
+          renderAnomalies();
+          pruneRouteAgainstAnomalies();
+        }
+        const left = allAnomalyTypes();
+        if (armedType === type) armedType = left[0] || "";
+        buildPalette();
+        if (!left.length) {
+          setFeedback("调色板空了，点「＋」加一个异常类型再放。", "warn");
+        } else if (wiped) {
+          setFeedback("已删除「" + type + "」图标，同时清掉地图上 " + wiped + " 个该异常点位。", "info");
+        } else {
+          setFeedback("已删除「" + type + "」图标。", "info");
+        }
+      });
+      wrap.append(del);
+      els.chips.append(wrap);
+    });
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "chip chip--add";
+    add.textContent = "＋";
+    add.title = "添加一种自定义异常";
+    add.addEventListener("click", () => {
+      const name = window.prompt("输入异常名称（1~3 个字）", "水");
+      if (!name) return;
+      const trimmed = name.trim().slice(0, 3);
+      if (!trimmed) return;
+      armedType = trimmed;
+      if (hiddenTypes.indexOf(trimmed) !== -1) {
+        hiddenTypes = hiddenTypes.filter((t) => t !== trimmed);
+        saveHiddenTypes();
+      }
+      if (customTypes.indexOf(trimmed) === -1 && ANOMALY_TYPES.indexOf(trimmed) === -1) {
+        customTypes.push(trimmed);
+        saveCustomTypes();
+      }
+      buildPalette();
+      setFeedback("已添加异常类型「" + trimmed + "」，点地图放置。", "success");
+    });
+    els.chips.append(add);
+    els.chips.querySelectorAll(".chip").forEach((n) => n.classList.toggle("is-armed", n.dataset.type === armedType));
+  }
+
+  function setAnomalyEdit(on) {
+    anomalyEdit = on;
+    if (on) {
+      if (patrol.on) stopPatrol("已停止自动巡检：进入异常标定。");
+      if (manualPatrol) stopManualPatrol();
+      if (routeEdit) setRouteEdit(false);
+      stopMovingNow();
+    }
+    if (els.palette) els.palette.hidden = !on;
+    if (els.anomalyBtn) {
+      els.anomalyBtn.classList.toggle("is-on", on);
+      els.anomalyBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    if (els.anomalyLabel) els.anomalyLabel.textContent = on ? "点地板放异常" : "标定异常点位";
+    if (on) {
+      buildPalette();
+      setFeedback("把红三角拖到地板上，或先选类型再点地板；再点一次可移除。", "info");
+    } else {
+      saveAnomalies();
+      setFeedback("异常点位已保存，共 " + anomalies.length + " 个。", "success");
+    }
+  }
+
+  /* ---- 手动巡检：点位照样标出来，但由人自己走过去 ---- */
+  let manualPatrol = null;
+
+  function stopManualPatrol() {
+    if (!manualPatrol) return;
+    manualPatrol = null;
+    if (els.manualBtn) els.manualBtn.classList.remove("is-on");
+    if (els.manualLabel) els.manualLabel.textContent = "手动巡检";
+    clearPatrolMarks();
+  }
+
+  function startManualPatrol() {
+    const points =
+      customRoute.length && currentState && customRoute.every((p) => p.x < currentState.grid.width && p.y < currentState.grid.height)
+        ? customRoute.map((p) => ({ x: p.x, y: p.y }))
+        : planPatrolRoute(currentState, { x: actor.x, y: actor.y });
+    if (!points.length) {
+      setFeedback("没有可用的巡检点位，先「标定巡检顺序」或换一张地图。", "warn");
+      return;
+    }
+    if (patrol.on) stopPatrol("已停止自动巡检。");
+    if (routeEdit) setRouteEdit(false);
+    if (anomalyEdit) setAnomalyEdit(false);
+    manualPatrol = { points: points, done: 0 };
+    if (els.manualBtn) els.manualBtn.classList.add("is-on");
+    if (els.manualLabel) els.manualLabel.textContent = "结束手动巡检";
+    updateTally(points.length, 0);
+    paintManualMarks();
+    setFeedback("手动巡检开始：共 " + points.length + " 个点位，自己走过去吧。", "info");
+  }
+
+  function paintManualMarks() {
+    clearPatrolMarks();
+    if (!manualPatrol || !els.board) return;
+    manualPatrol.points.forEach((point, index) => {
+      if (index < manualPatrol.done) return;
+      const cell = els.board.querySelector('.cell[data-x="' + point.x + '"][data-y="' + point.y + '"]');
+      if (!cell) return;
+      cell.classList.add("is-waypoint");
+      if (index === manualPatrol.done) cell.classList.add("is-target");
+    });
+  }
+
+  function checkManualHit(cellX, cellY) {
+    if (!manualPatrol) return;
+    const point = manualPatrol.points[manualPatrol.done];
+    if (!point || point.x !== cellX || point.y !== cellY) return;
+    manualPatrol.done += 1;
+    updateTally(manualPatrol.points.length, manualPatrol.done);
+    if (manualPatrol.done >= manualPatrol.points.length) {
+      setFeedback("手动巡检完成：" + manualPatrol.done + " 个点位全部走过。", "success");
+      stopManualPatrol();
+      return;
+    }
+    setFeedback("手动巡检 " + manualPatrol.done + "/" + manualPatrol.points.length + "，下一个点位已标出。", "success");
+    paintManualMarks();
+  }
+
+  /* ---- 巡检点位标记：复用点击回执那个下指箭头 ---- */
+
+  /** 给当前排队的点位挂上 is-waypoint，队首那颗再挂 is-target（更亮、会呼吸）。 */
+  function paintPatrolMarks() {
+    clearPatrolMarks();
+    if (!patrol.on) return;
+    // 正在走过去的那个点位也要标（它已经出队了，不然会「还没到箭头就消失」）
+    const marks = [];
+    if (patrol.current) marks.push(patrol.current);
+    patrol.queue.forEach((point) => marks.push(point));
+    marks.forEach((point) => {
+      const cell = els.board.querySelector(
+        '.cell[data-x="' + point.x + '"][data-y="' + point.y + '"]'
+      );
+      if (!cell) return;
+      // 用像素而不是百分比：格子只有 aspect-ratio、没有显式高度，
+      // ::after 的百分比 top 会按 0 高度解析，箭头会跑到格子外面
+      cell.style.setProperty("--tx", (cell.offsetWidth / 2).toFixed(1) + "px");
+      cell.style.setProperty("--ty", (cell.offsetHeight / 2).toFixed(1) + "px");
+      cell.classList.add("is-waypoint");
+      if (patrol.current && point === patrol.current) cell.classList.add("is-target");
+    });
+  }
+
+  function clearPatrolMarks() {
+    els.board.querySelectorAll(".cell.is-waypoint").forEach((cell) => {
+      cell.classList.remove("is-waypoint", "is-target");
+    });
+  }
+
+  /* ---- 地标计数与标定交互 ---- */
+
+  function updateTally(total, done) {
+    // 走完所有点位（不管是自动巡检还是手动巡检）都应该能导出报告
+    if (patrolReportBtn && total > 0 && done >= total) patrolReportBtn.hidden = false;
+    if (!els.mapTally) return;
+    els.mapTally.hidden = !(total > 0);
+    if (els.tallyTotal) els.tallyTotal.textContent = String(total || 0);
+    if (els.tallyDone) els.tallyDone.textContent = String(done || 0);
+  }
+
+  function saveCustomRoute() {
+    try {
+      window.localStorage.setItem(ROUTE_KEY, JSON.stringify(customRoute));
+    } catch (error) {
+      /* 隐私模式下写不进去，不影响本次使用 */
+    }
+  }
+
+  function loadCustomRoute() {
+    try {
+      const raw = window.localStorage.getItem(ROUTE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      customRoute = parsed
+        .filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y))
+        .map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+    } catch (error) {
+      customRoute = [];
+    }
+  }
+
+  function clearRouteIndexes() {
+    els.board.querySelectorAll(".wp-index").forEach((badge) => badge.remove());
+  }
+
+  /**
+   * 异常点位一变就重新体检巡检点位：从机器人脚下出发，按标定顺序逐点验证，
+   * 保留下来的点必须「自己没被占住」且「能从上一个保留点走过去」。
+   * 顺序因此天然保持连续，删掉中间的点后编号会顺延重排。
+   */
+  window.__dbg = () => ({
+    route: customRoute.map((p) => [p.x, p.y]),
+    anomalies: anomalies.map((a) => [a.x, a.y]),
+    routeEdit: routeEdit,
+    anomalyEdit: anomalyEdit,
+  });
+
+  function pruneRouteAgainstAnomalies() {
+    if (!customRoute.length || !currentState) return 0;
+    const kept = [];
+    let cursor = { x: Math.round(actor.x), y: Math.round(actor.y) };
+    customRoute.forEach((point) => {
+      const target = { x: Number(point.x), y: Number(point.y) };
+      if (isBlockedCell(target.x, target.y)) return; // 被异常/牌子占了
+      if (!findPathCells(cursor, target).length) return; // 走不过去
+      kept.push(point);
+      cursor = target;
+    });
+    const dropped = customRoute.length - kept.length;
+    if (!dropped) return 0;
+    customRoute = kept;
+    saveCustomRoute();
+    renderRouteIndexes();
+    updateTally(customRoute.length, 0);
+    return dropped;
+  }
+
+  function renderRouteIndexes() {
+    clearRouteIndexes();
+    if (!routeEdit) return;
+    customRoute.forEach((point, index) => {
+      const cell = els.board.querySelector(
+        '.cell[data-x="' + point.x + '"][data-y="' + point.y + '"]'
+      );
+      if (!cell) return;
+      const badge = document.createElement("span");
+      badge.className = "wp-index";
+      badge.textContent = String(index + 1);
+      cell.append(badge);
+    });
+  }
+
+  function toggleRoutePoint(cellX, cellY) {
+    if (isBlockedCell(cellX, cellY)) {
+      setFeedback("那一格已经不让站了：立着牌子或者有异常点位。", "warn");
+      return;
+    }
+    const index = customRoute.findIndex((p) => p.x === cellX && p.y === cellY);
+    if (index >= 0) {
+      customRoute.splice(index, 1);
+      setFeedback("已移除第 " + (index + 1) + " 个地标，现在共 " + customRoute.length + " 个。");
+    } else {
+      customRoute.push({ x: cellX, y: cellY });
+      setFeedback(
+        "已加第 " + customRoute.length + " 个地标，继续点地板，点「确定」结束标定。"
+      );
+    }
+    renderRouteIndexes();
+    updateTally(customRoute.length, 0);
+    saveCustomRoute();
+  }
+
+  function setRouteEdit(on) {
+    routeEdit = on;
+    // 进标定前先把被异常挡住/走不到的点位清掉，免得旧点堵在那里点不掉
+    if (on && currentState) {
+      const dropped = pruneRouteAgainstAnomalies();
+      if (dropped) {
+        setFeedback("有 " + dropped + " 个点位现在走不到（被异常占住或围住），已经自动移除。", "warn");
+      }
+    }
+    if (els.routeEditBtn) {
+      els.routeEditBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      els.routeEditBtn.classList.toggle("is-on", on);
+    }
+    if (els.routeEditLabel) {
+      els.routeEditLabel.textContent = on ? "标定中：点地板加点位" : "标定巡检顺序";
+    }
+    if (els.routeConfirm) els.routeConfirm.hidden = !on;
+    if (on) {
+      if (patrol.on) stopPatrol("已停止自动巡检：开始标定新顺序。");
+      if (manualPatrol) stopManualPatrol();
+      if (anomalyEdit) setAnomalyEdit(false);
+      stopMovingNow();
+      renderRouteIndexes();
+      setFeedback("标定模式：按顺序点地板（禁区点不了），点「确定」结束。");
+    } else {
+      clearRouteIndexes();
+      setFeedback("巡检顺序已保存：" + customRoute.length + " 个地标。");
+    }
+    updateTally(customRoute.length, 0);
+  }
+
   function startPatrol() {
     if (!currentState || patrol.on) return;
-    const route = planPatrolRoute(currentState, { x: actor.x, y: actor.y });
+    if (manualPatrol) stopManualPatrol();
+    if (routeEdit) setRouteEdit(false);
+    if (anomalyEdit) setAnomalyEdit(false);
+    const route = customRoute.length
+      ? customRoute.map((p) => ({ x: p.x, y: p.y }))
+      : planPatrolRoute(currentState, { x: actor.x, y: actor.y });
     if (!route.length) {
       setFeedback("没有可以巡检的格子。", "warn");
       return;
@@ -1147,6 +1768,8 @@
     patrol.visited0 = trail.size;
     patrol.on = true;
     setPatrolButton(true);
+    updateTally(patrol.total, 0);
+    paintPatrolMarks();
     startLoop();
     setFeedback(
       "自动巡检开始：" +
@@ -1166,7 +1789,9 @@
     setPatrolButton(false);
     // 中途停下来就没有完整统计了，把上一轮的结果和导出按钮一起收掉
     patrol.lastSummary = null;
+    patrol.current = null;
     if (patrolReportBtn) patrolReportBtn.hidden = true;
+    clearPatrolMarks();
     if (reason) setFeedback(reason, "warn");
   }
 
@@ -1204,11 +1829,19 @@
   }
 
   function exportPatrolReport() {
-    if (!patrol.lastSummary) {
-      setFeedback("还没有走完一整轮巡检，暂时没有可导出的统计。", "warn");
+    if (!patrol.lastSummary && !manualDone) {
+      setFeedback("还没有走完一轮巡检：把标定的点位走到「已巡检 / 总数」相等再导出。", "warn");
       return;
     }
-    const sum = patrol.lastSummary;
+    const manualDone =
+      manualPatrol && manualPatrol.points.length > 0 && manualPatrol.done >= manualPatrol.points.length;
+    // 手动巡检没有 lastSummary，用现有的几个数字凑一份，缺的标「未统计」而不是编一个
+    const sum = patrol.lastSummary || {
+      seconds: null,
+      steps: null,
+      visited: null,
+      points: manualPatrol ? manualPatrol.points.length : 0,
+    };
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const stamp =
@@ -1219,23 +1852,39 @@
       ? "(" + currentState.robot.x.toFixed(1) + ", " + currentState.robot.y.toFixed(1) + ")"
       : "未知";
     const route = describeRoute(grid);
+    // 报告是谁跑出来的：自动巡检才会写 lastSummary，其余按手动算
+    const modeLabel = patrol.lastSummary ? "自动巡检" : "手动巡检";
+    exportSeq += 1;
+    const sceneLabel = (currentState && currentState.scene && currentState.scene.name) || currentSceneId || "地图";
+    const fileName =
+      "巡检报告-" + sceneLabel + "-" + modeLabel + "-第" + exportSeq + "次-" + stamp + ".md";
     const lines = [
       "# 巡检报告",
       "",
       "- 生成时间：" + now.toLocaleString("zh-CN"),
+      "- 巡检方式：" + modeLabel + "（本次会话第 " + exportSeq + " 份）",
       "- 地图：" + grid.width + " × " + grid.height + "，障碍 " + grid.obstacles.length + " 处",
       "- 巡检点位：" + patrol.done + " / " + patrol.total +
         (patrol.skipped ? "（跳过 " + patrol.skipped + " 个）" : ""),
-      "- 用时：" + sum.seconds + " 秒",
-      "- 移动步数：" + sum.steps + " 步",
-      "- 新覆盖格子：" + sum.visited + " 格",
+      "- 用时：" + (sum.seconds == null ? "未统计（手动巡检不单独计时）" : sum.seconds + " 秒"),
+      "- 移动步数：" + (sum.steps == null ? "未统计" : sum.steps + " 步"),
+      "- 新覆盖格子：" + (sum.visited == null ? "见下方路线" : sum.visited + " 格"),
       "- 结束位置：" + pos,
+      "- 异常点位：" +
+        (anomalies.length
+          ? anomalies.length + " 个（已发现 " + anomalies.filter((a) => a.detected).length + " 个）"
+          : "无"),
+      "",
+      "## 异常点位",
+      "",
+      ...(anomalies.length
+        ? anomalies.map(
+            (a) =>
+              "    (" + a.x + ", " + a.y + ")  " + a.type + "  " + (a.detected ? "已发现" : "未发现")
+          )
+        : ["    无"]),
       "",
       "## 本轮路线",
-      "",
-      ...route.ascii.map((row) => "    " + row),
-      "",
-      "    # 禁止通行   o 走过   . 可通行   @ 当前位置",
       "",
       "共 " + trackPoints.length + " 个采样点，按格子去重后 " + route.cells.length + " 格：",
       "",
@@ -1251,7 +1900,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "巡检报告-" + stamp + ".md";
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1268,6 +1917,8 @@
         seconds: Number(sum.seconds),
         steps: sum.steps,
         visited: sum.visited,
+        anomalies: anomalies.map((a) => ({ x: a.x, y: a.y, type: a.type, detected: !!a.detected })),
+        anomaly_count: anomalies.filter((a) => a.detected).length,
       }),
     })
       .then((res) => {
@@ -1301,7 +1952,7 @@
     table.className = "rep-table";
     const head = document.createElement("thead");
     const headRow = document.createElement("tr");
-    ["#", "时间", "地图", "点位", "用时", "步数", "覆盖"].forEach((label) => {
+    ["#", "时间", "地图", "点位", "用时", "异常", "异常状态"].forEach((label) => {
       const th = document.createElement("th");
       th.textContent = label;
       headRow.append(th);
@@ -1316,8 +1967,10 @@
         item.scene_name || item.scene || "—",
         item.points + " 个",
         item.seconds + " 秒",
-        item.steps + " 步",
-        item.visited + " 格",
+        (item.anomalies ? item.anomalies.length : item.anomaly_count || 0) + " 个",
+        (item.anomalies && item.anomalies.length
+          ? item.anomalies.map((a) => a.type + (a.detected ? "✓" : "")).join("、")
+          : "—"),
       ];
       cells.forEach((text, index) => {
         const td = document.createElement("td");
@@ -1412,6 +2065,7 @@
     }
 
     if (els.factScanned) els.factScanned.textContent = String(scanned.size);
+    detectAnomalies();
     svg.classList.toggle("is-on", scanOn);
     if (!scanOn) return;
 
@@ -1595,7 +2249,7 @@
 
     let label = "第 " + y + " 行第 " + x + " 列，可通行";
 
-    if (isBlockedCell(x, y)) {
+    if (isObstacleCell(x, y)) {
       cell.classList.add("cell--block");
       label = "第 " + y + " 行第 " + x + " 列，禁止通行";
 
@@ -2206,6 +2860,15 @@
       if (!started || !currentState) return;
       const point = pointIn(cellUnder(event.clientX, event.clientY), event.clientX, event.clientY);
       if (!point) return;
+      if (anomalyEdit) {
+        toggleAnomaly(point.cellX, point.cellY, armedType);
+        return;
+      }
+
+      if (routeEdit) {
+        toggleRoutePoint(point.cellX, point.cellY);
+        return;
+      }
       pressPoint = point;
       try {
         els.board.setPointerCapture(event.pointerId);
@@ -2240,6 +2903,17 @@
     // 松开发生在画布外（比如拖到右栏再放手）时，board 收不到 pointerup，这里兜底
     window.addEventListener("pointerup", endPress);
     window.addEventListener("pointercancel", endPress);
+    els.anomalyBtn.addEventListener("click", () => setAnomalyEdit(!anomalyEdit));
+
+    els.manualBtn.addEventListener("click", () => {
+      if (manualPatrol) {
+        stopManualPatrol();
+        setFeedback("已结束手动巡检。", "info");
+        return;
+      }
+      startManualPatrol();
+    });
+
     els.reload.addEventListener("click", () => {
       // 手动重新读取＝重新开始一轮巡检，把这一轮的痕迹和步数一起清掉
       steps = 0;
@@ -2252,6 +2926,12 @@
       els.factVisited.textContent = "0";
       loadState({ initial: !currentState });
     });
+    if (els.routeEditBtn) {
+      els.routeEditBtn.addEventListener("click", () => setRouteEdit(!routeEdit));
+    }
+    if (els.routeConfirm) {
+      els.routeConfirm.addEventListener("click", () => setRouteEdit(false));
+    }
     els.openScene.addEventListener("click", openSetup);
     els.startGo.addEventListener("click", beginRun);
 
@@ -2267,6 +2947,7 @@
       if (!started || isTypingTarget(event.target)) return;
       if (!els.start.hidden) return;
       if (stick.on) return;
+      if (isCalibrating()) return;
 
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;
@@ -2298,6 +2979,13 @@
     restoreSide();
     restoreScan();
     restoreTrace();
+    loadAnomalies(); // 启动即清空：异常点位只在本次会话有效
+    loadCustomRoute();
+    loadCustomTypes();
+  loadHiddenTypes();
+    loadAnomalies();
+    buildPalette();
+    updateTally(customRoute.length, 0);
     syncControls();
     applyFreeTexts();
     // 扫描扇形与轨迹要跟着角色走：单独一层 rAF，和移动循环解耦，

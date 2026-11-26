@@ -178,6 +178,29 @@ def create_app() -> FastAPI:
                 return error(400, "invalid_report", f"{key} 必须是非负数字")
             numbers[key] = round(float(value), 1) if key == "seconds" else int(value)
 
+        anomalies_raw = payload.get("anomalies") or []
+        if not isinstance(anomalies_raw, list):
+            return error(400, "invalid_report", "anomalies 必须是数组")
+        anomalies: list[dict] = []
+        for item in anomalies_raw:
+            if not isinstance(item, dict):
+                return error(400, "invalid_report", "anomalies 里的每一项都必须是对象")
+            ax, ay, atype = item.get("x"), item.get("y"), item.get("type")
+            if isinstance(ax, bool) or not isinstance(ax, int) or ax < 0:
+                return error(400, "invalid_report", "anomalies.x 必须是非负整数")
+            if isinstance(ay, bool) or not isinstance(ay, int) or ay < 0:
+                return error(400, "invalid_report", "anomalies.y 必须是非负整数")
+            if not isinstance(atype, str) or not atype.strip():
+                return error(400, "invalid_report", "anomalies.type 必须是非空字符串")
+            anomalies.append(
+                {
+                    "x": ax,
+                    "y": ay,
+                    "type": atype.strip()[:8],
+                    "detected": bool(item.get("detected")),
+                }
+            )
+
         REPORT_SEQ += 1
         record = {
             "id": REPORT_SEQ,
@@ -185,6 +208,8 @@ def create_app() -> FastAPI:
             "scene": scene_id,
             "scene_name": SCENES[scene_id]["name"],
             **numbers,
+            "anomalies": anomalies,
+            "anomaly_count": sum(1 for a in anomalies if a["detected"]),
         }
         REPORTS.append(record)
         if len(REPORTS) > REPORT_LIMIT:
