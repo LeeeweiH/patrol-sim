@@ -1611,6 +1611,8 @@
   /* ---- 地标计数与标定交互 ---- */
 
   function updateTally(total, done) {
+    // 走完所有点位（不管是自动巡检还是手动巡检）都应该能导出报告
+    if (patrolReportBtn && total > 0 && done >= total) patrolReportBtn.hidden = false;
     if (!els.mapTally) return;
     els.mapTally.hidden = !(total > 0);
     if (els.tallyTotal) els.tallyTotal.textContent = String(total || 0);
@@ -1826,11 +1828,19 @@
   }
 
   function exportPatrolReport() {
-    if (!patrol.lastSummary) {
-      setFeedback("还没有走完一整轮巡检，暂时没有可导出的统计。", "warn");
+    if (!patrol.lastSummary && !manualDone) {
+      setFeedback("还没有走完一轮巡检：把标定的点位走到「已巡检 / 总数」相等再导出。", "warn");
       return;
     }
-    const sum = patrol.lastSummary;
+    const manualDone =
+      manualPatrol && manualPatrol.points.length > 0 && manualPatrol.done >= manualPatrol.points.length;
+    // 手动巡检没有 lastSummary，用现有的几个数字凑一份，缺的标「未统计」而不是编一个
+    const sum = patrol.lastSummary || {
+      seconds: null,
+      steps: null,
+      visited: null,
+      points: manualPatrol ? manualPatrol.points.length : 0,
+    };
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const stamp =
@@ -1848,9 +1858,9 @@
       "- 地图：" + grid.width + " × " + grid.height + "，障碍 " + grid.obstacles.length + " 处",
       "- 巡检点位：" + patrol.done + " / " + patrol.total +
         (patrol.skipped ? "（跳过 " + patrol.skipped + " 个）" : ""),
-      "- 用时：" + sum.seconds + " 秒",
-      "- 移动步数：" + sum.steps + " 步",
-      "- 新覆盖格子：" + sum.visited + " 格",
+      "- 用时：" + (sum.seconds == null ? "未统计（手动巡检不单独计时）" : sum.seconds + " 秒"),
+      "- 移动步数：" + (sum.steps == null ? "未统计" : sum.steps + " 步"),
+      "- 新覆盖格子：" + (sum.visited == null ? "见下方路线" : sum.visited + " 格"),
       "- 结束位置：" + pos,
       "- 异常点位：" +
         (anomalies.length
