@@ -1209,7 +1209,14 @@
   }
 
   /* ---- 异常点位：火 / 坑 / 自定义字，红三角标 ---- */
-  const ANOMALY_KEY = "patrol.anomalies.v1";
+  const ANOMALY_KEY = "patrol.anomalies.v1"; // 旧版全局键，仅用于一次性清理
+  const ANOMALY_PREFIX = "patrol.anomalies.v2."; // 新版按场景分开存
+  let anomaliesScene = "";
+
+  /** 每张地图一份：换地图/清缓存时不会把别的图的标记带过来。 */
+  function anomalyKey() {
+    return ANOMALY_PREFIX + (currentSceneId || "default");
+  }
   const ANOMALY_TYPE_KEY = "patrol.anomalyTypes.v1";
   const ANOMALY_TYPES = ["火", "坑"];
   let customTypes = [];        // 用户自己加的类型，持久化在 localStorage
@@ -1250,7 +1257,9 @@
 
   function loadAnomalies() {
     try {
-      const raw = window.localStorage.getItem(ANOMALY_KEY);
+      // 旧版把所有地图的异常塞在一个键里，读一次就删掉，避免「刷新又冒出来」
+      window.localStorage.removeItem(ANOMALY_KEY);
+      const raw = window.localStorage.getItem(anomalyKey());
       const parsed = raw ? JSON.parse(raw) : [];
       anomalies = Array.isArray(parsed)
         ? parsed.filter((a) => a && Number.isFinite(a.x) && Number.isFinite(a.y) && typeof a.type === "string")
@@ -1262,7 +1271,7 @@
 
   function saveAnomalies() {
     try {
-      window.localStorage.setItem(ANOMALY_KEY, JSON.stringify(anomalies));
+      window.localStorage.setItem(anomalyKey(), JSON.stringify(anomalies));
     } catch (error) {
       /* 存不了就算了，不影响本轮 */
     }
@@ -1278,8 +1287,16 @@
   }
 
   /** 把异常标画到格子上（每次重建地图后调用） */
+  /** 地图换了就把这一张图的异常读回来（渲染前调用）。 */
+  function syncAnomaliesForScene() {
+    if (anomaliesScene === currentSceneId) return;
+    anomaliesScene = currentSceneId;
+    loadAnomalies();
+  }
+
   function renderAnomalies() {
     if (!els.board) return;
+    syncAnomaliesForScene();
     els.board.querySelectorAll(".cell .anomaly").forEach((node) => node.remove());
     anomalies.forEach((a) => {
       const cell = els.board.querySelector('.cell[data-x="' + a.x + '"][data-y="' + a.y + '"]');
