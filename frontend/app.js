@@ -1238,12 +1238,13 @@
       const cell = els.board.querySelector('.cell[data-x="' + a.x + '"][data-y="' + a.y + '"]');
       if (!cell) return;
       const badge = document.createElement("span");
-      badge.className = "anomaly" + (a.detected ? " is-detected" : "");
+      badge.className = "anomaly";
       badge.textContent = a.type;
       badge.setAttribute("aria-hidden", "true");
       cell.append(badge);
     });
     updateAnomalyTally();
+    detectAnomalies();
   }
 
   function toggleAnomaly(cellX, cellY, type) {
@@ -1276,22 +1277,35 @@
   }
 
   /** 雷达扫到异常格中心 → 计一次「已发现」 */
+  function emitAnomalyVisibility(visible) {
+    if (!els.board) return;
+    els.board.querySelectorAll(".cell .anomaly").forEach((node) => {
+      const cell = node.parentElement;
+      const key = cell.dataset.x + "," + cell.dataset.y;
+      node.classList.toggle("is-near", visible.has(key));
+    });
+  }
+
   function detectAnomalies() {
-    if (!currentState || !scanOn || !anomalies.length) return;
+    if (!currentState || !scanOn || !anomalies.length) {
+      emitAnomalyVisibility(new Set());
+      return;
+    }
     const blocked = obstacleSet();
+    const visible = new Set();
     let changed = false;
     anomalies.forEach((a) => {
-      if (a.detected) return;
       if (Math.hypot(a.x - actor.x, a.y - actor.y) > SCAN_RANGE) return;
       if (!losClear(actor.x, actor.y, a.x, a.y, blocked)) return;
-      a.detected = true;
-      changed = true;
-      setFeedback("雷达发现异常：(" + a.x + ", " + a.y + ") 的「" + a.type + "」。", "warn");
+      visible.add(a.x + "," + a.y);
+      if (!a.detected) {
+        a.detected = true;
+        changed = true;
+        setFeedback("雷达发现异常：(" + a.x + ", " + a.y + ") 的「" + a.type + "」。", "warn");
+      }
     });
-    if (changed) {
-      saveAnomalies();
-      renderAnomalies();
-    }
+    emitAnomalyVisibility(visible);
+    if (changed) saveAnomalies();
   }
 
   function buildPalette() {
@@ -1358,6 +1372,7 @@
     if (on) {
       if (patrol.on) stopPatrol("已停止自动巡检：进入异常标定。");
       if (manualPatrol) stopManualPatrol();
+      if (routeEdit) setRouteEdit(false);
     }
     if (els.palette) els.palette.hidden = !on;
     if (els.anomalyBtn) {
@@ -1395,6 +1410,8 @@
       return;
     }
     if (patrol.on) stopPatrol("已停止自动巡检。");
+    if (routeEdit) setRouteEdit(false);
+    if (anomalyEdit) setAnomalyEdit(false);
     manualPatrol = { points: points, done: 0 };
     if (els.manualBtn) els.manualBtn.classList.add("is-on");
     if (els.manualLabel) els.manualLabel.textContent = "结束手动巡检";
@@ -1542,6 +1559,8 @@
     if (els.routeConfirm) els.routeConfirm.hidden = !on;
     if (on) {
       if (patrol.on) stopPatrol("已停止自动巡检：开始标定新顺序。");
+      if (manualPatrol) stopManualPatrol();
+      if (anomalyEdit) setAnomalyEdit(false);
       renderRouteIndexes();
       setFeedback("标定模式：按顺序点地板（禁区点不了），点「确定」结束。");
     } else {
@@ -1553,7 +1572,9 @@
 
   function startPatrol() {
     if (!currentState || patrol.on) return;
+    if (manualPatrol) stopManualPatrol();
     if (routeEdit) setRouteEdit(false);
+    if (anomalyEdit) setAnomalyEdit(false);
     const route = customRoute.length
       ? customRoute.map((p) => ({ x: p.x, y: p.y }))
       : planPatrolRoute(currentState, { x: actor.x, y: actor.y });
@@ -1675,10 +1696,6 @@
         : ["    无"]),
       "",
       "## 本轮路线",
-      "",
-      ...route.ascii.map((row) => "    " + row),
-      "",
-      "    # 禁止通行   o 走过   . 可通行   @ 当前位置",
       "",
       "共 " + trackPoints.length + " 个采样点，按格子去重后 " + route.cells.length + " 格：",
       "",

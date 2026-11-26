@@ -2264,3 +2264,18 @@ kbd {
   border-color: #c62828;
   color: #fff;
 }
+
+/* 异常三角形：默认灰，雷达扫到（在范围且视线通）时变红 */
+.anomaly {
+  background: #9aa4ac;
+  transition: background 160ms ease, filter 160ms ease;
+}
+
+.anomaly.is-near {
+  background: #c62828;
+  filter: drop-shadow(0 0 4px rgba(198, 40, 40, 0.45));
+}
+
+.anomaly.is-detected {
+  background: #9aa4ac;
+}
