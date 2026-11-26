@@ -1274,6 +1274,7 @@
     });
     return out;
   }
+  let exportSeq = 0;           // 本次会话导出了几份报告，用来在文件名里标「第几次」
   let anomalies = [];          // [{ x, y, type, detected }]
   let anomalyEdit = false;     // 「标定异常点位」模式
   let armedType = ANOMALY_TYPES[0]; // 会被 buildPalette 按可见类型纠正
@@ -1851,10 +1852,17 @@
       ? "(" + currentState.robot.x.toFixed(1) + ", " + currentState.robot.y.toFixed(1) + ")"
       : "未知";
     const route = describeRoute(grid);
+    // 报告是谁跑出来的：自动巡检才会写 lastSummary，其余按手动算
+    const modeLabel = patrol.lastSummary ? "自动巡检" : "手动巡检";
+    exportSeq += 1;
+    const sceneLabel = (currentState && currentState.scene && currentState.scene.name) || currentSceneId || "地图";
+    const fileName =
+      "巡检报告-" + sceneLabel + "-" + modeLabel + "-第" + exportSeq + "次-" + stamp + ".md";
     const lines = [
       "# 巡检报告",
       "",
       "- 生成时间：" + now.toLocaleString("zh-CN"),
+      "- 巡检方式：" + modeLabel + "（本次会话第 " + exportSeq + " 份）",
       "- 地图：" + grid.width + " × " + grid.height + "，障碍 " + grid.obstacles.length + " 处",
       "- 巡检点位：" + patrol.done + " / " + patrol.total +
         (patrol.skipped ? "（跳过 " + patrol.skipped + " 个）" : ""),
@@ -1892,7 +1900,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "巡检报告-" + stamp + ".md";
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
