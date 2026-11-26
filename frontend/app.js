@@ -446,7 +446,9 @@
 
   function isBlockedCell(x, y) {
     if (!currentState) return false;
-    return currentState.grid.obstacles.some((item) => item[0] === x && item[1] === y);
+    if (currentState.grid.obstacles.some((item) => item[0] === x && item[1] === y)) return true;
+    // 异常点位等同障碍：自动巡检、寻路和手动移动都不能穿过它
+    return anomalies.some((a) => a.x === x && a.y === y);
   }
 
   /** 圆形机器人 vs 正方形障碍格：贴边滑行靠这个判定。 */
@@ -459,6 +461,16 @@
     for (let i = 0; i < grid.obstacles.length; i += 1) {
       const bx = grid.obstacles[i][0];
       const by = grid.obstacles[i][1];
+      const nx = Math.max(bx - 0.5, Math.min(x, bx + 0.5));
+      const ny = Math.max(by - 0.5, Math.min(y, by + 0.5));
+      const dx = x - nx;
+      const dy = y - ny;
+      const radius = robotRadius();
+      if (dx * dx + dy * dy < radius * radius) return true;
+    }
+    for (let i = 0; i < anomalies.length; i += 1) {
+      const bx = anomalies[i].x;
+      const by = anomalies[i].y;
       const nx = Math.max(bx - 0.5, Math.min(x, bx + 0.5));
       const ny = Math.max(by - 0.5, Math.min(y, by + 0.5));
       const dx = x - nx;
@@ -588,6 +600,14 @@
       const maxY = oy + 0.5 + r;
       if (segmentHitsRect(ax, ay, bx, by, minX, minY, maxX, maxY)) return true;
     }
+    // 异常点位也按「实心方块 + 半径」膨胀，不能贴着穿过去
+    for (let i = 0; i < anomalies.length; i += 1) {
+      const minX = anomalies[i].x - 0.5 - r;
+      const maxX = anomalies[i].x + 0.5 + r;
+      const minY = anomalies[i].y - 0.5 - r;
+      const maxY = anomalies[i].y + 0.5 + r;
+      if (segmentHitsRect(ax, ay, bx, by, minX, minY, maxX, maxY)) return true;
+    }
     return false;
   }
 
@@ -635,6 +655,18 @@
     els.keys.forEach((button) => {
       if (button.dataset.direction === direction) button.classList.toggle("is-held", on);
     });
+  }
+
+  /** 标定巡检顺序 / 标定异常点位 期间，机器人一律不许动。 */
+  function isCalibrating() {
+    return Boolean(routeEdit || anomalyEdit);
+  }
+
+  function stopMovingNow() {
+    if (!actor) return;
+    actor.path.length = 0;
+    actor.target = null;
+    if (actor.walking) setWalking(false);
   }
 
   function heldVector() {
@@ -780,6 +812,11 @@
     lastFrame = timestamp;
 
     if (!started || mode !== "free" || !actor.node) return;
+
+    if (isCalibrating()) {
+      if (actor.walking || actor.path.length || actor.target) stopMovingNow();
+      return;
+    }
 
     let moving = false;
     const dir = heldVector();
@@ -979,10 +1016,14 @@
 
   function walkTo(cellX, cellY, offsetX, offsetY, options) {
     if (!currentState) return;
+    if (isCalibrating()) {
+      setFeedback("标定模式下机器人不动，先结束标定再走。", "warn");
+      return;
+    }
     // 手动点地图说明用户要自己开，先把自动巡检停掉
     if (patrol.on && !(options && options.silent)) stopPatrol("已停止自动巡检：转手动控制。");
     if (isBlockedCell(cellX, cellY)) {
-      setFeedback("那一格立着「禁止通行」牌，站不了人。", "warn");
+      setFeedback("那一格过不去：立着牌子，或者有异常点位。", "warn");
       return;
     }
 
@@ -1248,8 +1289,12 @@
   }
 
   function toggleAnomaly(cellX, cellY, type) {
-    if (isBlockedCell(cellX, cellY, currentState ? obstacleSet() : new Set())) {
+    if (currentState && currentState.grid.obstacles.some((o) => o[0] === cellX && o[1] === cellY)) {
       setFeedback("那一格立着「禁止通行」牌，不能放异常。", "warn");
+      return;
+    }
+    if (Math.round(actor.x) === cellX && Math.round(actor.y) === cellY) {
+      setFeedback("机器人正踩在这一格，先挪开再放异常。", "warn");
       return;
     }
     const found = anomalyAt(cellX, cellY);
@@ -1373,6 +1418,7 @@
       if (patrol.on) stopPatrol("已停止自动巡检：进入异常标定。");
       if (manualPatrol) stopManualPatrol();
       if (routeEdit) setRouteEdit(false);
+      stopMovingNow();
     }
     if (els.palette) els.palette.hidden = !on;
     if (els.anomalyBtn) {
@@ -1561,6 +1607,7 @@
       if (patrol.on) stopPatrol("已停止自动巡检：开始标定新顺序。");
       if (manualPatrol) stopManualPatrol();
       if (anomalyEdit) setAnomalyEdit(false);
+      stopMovingNow();
       renderRouteIndexes();
       setFeedback("标定模式：按顺序点地板（禁区点不了），点「确定」结束。");
     } else {
@@ -2758,7 +2805,7 @@
       if (!started || isTypingTarget(event.target)) return;
       if (!els.start.hidden) return;
       if (stick.on) return;
-      if (routeEdit) return;
+      if (isCalibrating()) return;
 
       const direction = KEY_TO_DIRECTION[event.key];
       if (!direction) return;

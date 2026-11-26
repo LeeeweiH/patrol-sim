@@ -2279,3 +2279,20 @@ kbd {
 .anomaly.is-detected {
   background: #9aa4ac;
 }
+
+/* 异常点位配色（覆盖上方旧规则）：雷达外=红色（未知危险），雷达内=灰色（已看清）
+   .is-detected 放前面，.is-near 放最后，同权重下后者生效 */
+.anomaly.is-detected {
+  background: #c62828;
+  filter: drop-shadow(0 0 5px rgba(198, 40, 40, 0.35));
+}
+.anomaly.is-near {
+  background: #9aa4ac;
+  filter: none;
+}
+
+/* 没有任何状态类时的默认色：雷达外=红 */
+.anomaly {
+  background: #c62828;
+  filter: drop-shadow(0 0 5px rgba(198, 40, 40, 0.35));
+}
