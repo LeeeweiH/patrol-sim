@@ -1255,26 +1255,29 @@
   let armedType = ANOMALY_TYPES[0];
   let anomalyDrag = null;      // 拖动中的那个 chip
 
-  function loadAnomalies() {
+  /** 异常点位是「这一轮标定」的产物，不落盘：刷新即清空，不会冒出上一轮的标记。 */
+  function clearStoredAnomalies() {
     try {
-      // 旧版把所有地图的异常塞在一个键里，读一次就删掉，避免「刷新又冒出来」
-      window.localStorage.removeItem(ANOMALY_KEY);
-      const raw = window.localStorage.getItem(anomalyKey());
-      const parsed = raw ? JSON.parse(raw) : [];
-      anomalies = Array.isArray(parsed)
-        ? parsed.filter((a) => a && Number.isFinite(a.x) && Number.isFinite(a.y) && typeof a.type === "string")
-        : [];
+      const store = window.localStorage;
+      const doomed = [];
+      // 注意：Object.keys(localStorage) 在部分浏览器里拿不到键，必须用 key(i) 遍历
+      for (let i = 0; i < store.length; i += 1) {
+        const k = store.key(i);
+        if (k && k.indexOf("patrol.anomalies") === 0) doomed.push(k);
+      }
+      doomed.forEach((k) => store.removeItem(k));
     } catch (error) {
-      anomalies = [];
+      /* 清不了就算了 */
     }
   }
 
+  function loadAnomalies() {
+    anomalies = [];
+    clearStoredAnomalies();
+  }
+
   function saveAnomalies() {
-    try {
-      window.localStorage.setItem(anomalyKey(), JSON.stringify(anomalies));
-    } catch (error) {
-      /* 存不了就算了，不影响本轮 */
-    }
+    /* 故意不写 localStorage */
   }
 
   function anomalyAt(x, y) {
@@ -1291,7 +1294,10 @@
   function syncAnomaliesForScene() {
     if (anomaliesScene === currentSceneId) return;
     anomaliesScene = currentSceneId;
-    loadAnomalies();
+    // 换地图等于换一轮：上一张图的异常不带过来，历史残留键也一并清掉
+    anomalies = [];
+    clearStoredAnomalies();
+    saveAnomalies();
   }
 
   function renderAnomalies() {
@@ -2860,6 +2866,7 @@
     restoreSide();
     restoreScan();
     restoreTrace();
+    loadAnomalies(); // 启动即清空：异常点位只在本次会话有效
     loadCustomRoute();
     loadCustomTypes();
     loadAnomalies();
