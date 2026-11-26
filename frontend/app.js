@@ -452,9 +452,12 @@
 
   function isBlockedCell(x, y) {
     if (!currentState) return false;
-    if (currentState.grid.obstacles.some((item) => item[0] === x && item[1] === y)) return true;
+    const tx = Number(x);
+    const ty = Number(y);
+    if (currentState.grid.obstacles.some((item) => Number(item[0]) === tx && Number(item[1]) === ty)) return true;
     // 异常点位等同障碍：自动巡检、寻路和手动移动都不能穿过它
-    return anomalies.some((a) => a.x === x && a.y === y);
+    // 注意：cell.dataset 给出来的是字符串，巡检点位存的是数字，比较前统一转成数字
+    return anomalies.some((a) => Number(a.x) === tx && Number(a.y) === ty);
   }
 
   /** 圆形机器人 vs 正方形障碍格：贴边滑行靠这个判定。 */
@@ -1281,7 +1284,9 @@
   }
 
   function anomalyAt(x, y) {
-    return anomalies.find((a) => a.x === x && a.y === y) || null;
+    const tx = Number(x);
+    const ty = Number(y);
+    return anomalies.find((a) => Number(a.x) === tx && Number(a.y) === ty) || null;
   }
 
   function updateAnomalyTally() {
@@ -1336,6 +1341,14 @@
     }
     saveAnomalies();
     renderAnomalies();
+    // 放/撤异常后立刻体检巡检点位，不合规的当场剔除
+    const dropped = pruneRouteAgainstAnomalies();
+    if (dropped) {
+      setFeedback(
+        "(" + cellX + ", " + cellY + ") 放了「" + type + "」，同时剔除了 " + dropped + " 个走不到的巡检点位。",
+        "warn"
+      );
+    }
   }
 
   function losClear(ax, ay, bx, by, blocked) {
@@ -1587,6 +1600,38 @@
     els.board.querySelectorAll(".wp-index").forEach((badge) => badge.remove());
   }
 
+  /**
+   * 异常点位一变就重新体检巡检点位：从机器人脚下出发，按标定顺序逐点验证，
+   * 保留下来的点必须「自己没被占住」且「能从上一个保留点走过去」。
+   * 顺序因此天然保持连续，删掉中间的点后编号会顺延重排。
+   */
+  window.__dbg = () => ({
+    route: customRoute.map((p) => [p.x, p.y]),
+    anomalies: anomalies.map((a) => [a.x, a.y]),
+    routeEdit: routeEdit,
+    anomalyEdit: anomalyEdit,
+  });
+
+  function pruneRouteAgainstAnomalies() {
+    if (!customRoute.length || !currentState) return 0;
+    const kept = [];
+    let cursor = { x: Math.round(actor.x), y: Math.round(actor.y) };
+    customRoute.forEach((point) => {
+      const target = { x: Number(point.x), y: Number(point.y) };
+      if (isBlockedCell(target.x, target.y)) return; // 被异常/牌子占了
+      if (!findPathCells(cursor, target).length) return; // 走不过去
+      kept.push(point);
+      cursor = target;
+    });
+    const dropped = customRoute.length - kept.length;
+    if (!dropped) return 0;
+    customRoute = kept;
+    saveCustomRoute();
+    renderRouteIndexes();
+    updateTally(customRoute.length, 0);
+    return dropped;
+  }
+
   function renderRouteIndexes() {
     clearRouteIndexes();
     if (!routeEdit) return;
@@ -1624,6 +1669,13 @@
 
   function setRouteEdit(on) {
     routeEdit = on;
+    // 进标定前先把被异常挡住/走不到的点位清掉，免得旧点堵在那里点不掉
+    if (on && currentState) {
+      const dropped = pruneRouteAgainstAnomalies();
+      if (dropped) {
+        setFeedback("有 " + dropped + " 个点位现在走不到（被异常占住或围住），已经自动移除。", "warn");
+      }
+    }
     if (els.routeEditBtn) {
       els.routeEditBtn.setAttribute("aria-pressed", on ? "true" : "false");
       els.routeEditBtn.classList.toggle("is-on", on);
