@@ -1223,6 +1223,8 @@
   const ANOMALY_TYPE_KEY = "patrol.anomalyTypes.v1";
   const ANOMALY_TYPES = ["火", "坑"];
   let customTypes = [];        // 用户自己加的类型，持久化在 localStorage
+  let hiddenTypes = [];        // 被删掉的内置类型（火/坑），也能持久化，删了就别再冒出来
+  const HIDDEN_TYPE_KEY = "patrol.anomalyTypes.hidden.v1";
 
   function loadCustomTypes() {
     try {
@@ -1231,6 +1233,24 @@
       customTypes = Array.isArray(arr) ? arr.filter((t) => typeof t === "string" && t) : [];
     } catch (error) {
       customTypes = [];
+    }
+  }
+
+  function loadHiddenTypes() {
+    try {
+      const raw = window.localStorage.getItem(HIDDEN_TYPE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      hiddenTypes = Array.isArray(arr) ? arr.filter((t) => typeof t === "string" && t) : [];
+    } catch (error) {
+      hiddenTypes = [];
+    }
+  }
+
+  function saveHiddenTypes() {
+    try {
+      window.localStorage.setItem(HIDDEN_TYPE_KEY, JSON.stringify(hiddenTypes));
+    } catch (error) {
+      /* 存不了就算了 */
     }
   }
 
@@ -1245,9 +1265,11 @@
   /** 调色板要显示的全部类型：预设 + 自定义 + 已放置过但不在前两者里的 */
   function allAnomalyTypes() {
     const out = [];
-    ANOMALY_TYPES.concat(customTypes).forEach((t) => {
-      if (out.indexOf(t) === -1) out.push(t);
-    });
+    ANOMALY_TYPES.filter((t) => hiddenTypes.indexOf(t) === -1)
+      .concat(customTypes)
+      .forEach((t) => {
+        if (out.indexOf(t) === -1) out.push(t);
+      });
     anomalies.forEach((a) => {
       if (out.indexOf(a.type) === -1) out.push(a.type);
     });
@@ -1255,7 +1277,7 @@
   }
   let anomalies = [];          // [{ x, y, type, detected }]
   let anomalyEdit = false;     // 「标定异常点位」模式
-  let armedType = ANOMALY_TYPES[0];
+  let armedType = ANOMALY_TYPES[0]; // 会被 buildPalette 按可见类型纠正
   let anomalyDrag = null;      // 拖动中的那个 chip
 
   /** 异常点位是「这一轮标定」的产物，不落盘：刷新即清空，不会冒出上一轮的标记。 */
@@ -1413,23 +1435,41 @@
         setFeedback("已选定「" + type + "」，点地图放置。", "info");
       });
       wrap.append(chip);
-      if (customTypes.indexOf(type) !== -1) {
-        const del = document.createElement("button");
-        del.type = "button";
-        del.className = "chip-del";
-        del.textContent = "×";
-        del.title = "删除自定义异常「" + type + "」";
-        del.setAttribute("aria-label", del.title);
-        del.addEventListener("click", (event) => {
-          event.stopPropagation();
-          customTypes = customTypes.filter((t) => t !== type);
-          saveCustomTypes();
-          if (armedType === type) armedType = ANOMALY_TYPES[0];
-          buildPalette();
-          setFeedback("已删除自定义异常「" + type + "」。", "info");
-        });
-        wrap.append(del);
-      }
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "chip-del";
+      del.textContent = "×";
+      del.title = "删除「" + type + "」图标，并清掉地图上所有该异常点位";
+      del.setAttribute("aria-label", del.title);
+      del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        // 图标本身从调色板拿掉：自定义的从 customTypes 删，内置的进 hiddenTypes
+        customTypes = customTypes.filter((t) => t !== type);
+        if (ANOMALY_TYPES.indexOf(type) !== -1 && hiddenTypes.indexOf(type) === -1) {
+          hiddenTypes.push(type);
+        }
+        saveCustomTypes();
+        saveHiddenTypes();
+        // 地图上这个类型的所有点位一起删掉
+        const before = anomalies.length;
+        anomalies = anomalies.filter((a) => a.type !== type);
+        const wiped = before - anomalies.length;
+        if (wiped) {
+          renderAnomalies();
+          pruneRouteAgainstAnomalies();
+        }
+        const left = allAnomalyTypes();
+        if (armedType === type) armedType = left[0] || "";
+        buildPalette();
+        if (!left.length) {
+          setFeedback("调色板空了，点「＋」加一个异常类型再放。", "warn");
+        } else if (wiped) {
+          setFeedback("已删除「" + type + "」图标，同时清掉地图上 " + wiped + " 个该异常点位。", "info");
+        } else {
+          setFeedback("已删除「" + type + "」图标。", "info");
+        }
+      });
+      wrap.append(del);
       els.chips.append(wrap);
     });
     const add = document.createElement("button");
@@ -1443,7 +1483,11 @@
       const trimmed = name.trim().slice(0, 3);
       if (!trimmed) return;
       armedType = trimmed;
-      if (customTypes.indexOf(trimmed) === -1) {
+      if (hiddenTypes.indexOf(trimmed) !== -1) {
+        hiddenTypes = hiddenTypes.filter((t) => t !== trimmed);
+        saveHiddenTypes();
+      }
+      if (customTypes.indexOf(trimmed) === -1 && ANOMALY_TYPES.indexOf(trimmed) === -1) {
         customTypes.push(trimmed);
         saveCustomTypes();
       }
@@ -2921,6 +2965,7 @@
     loadAnomalies(); // 启动即清空：异常点位只在本次会话有效
     loadCustomRoute();
     loadCustomTypes();
+  loadHiddenTypes();
     loadAnomalies();
     buildPalette();
     updateTally(customRoute.length, 0);
