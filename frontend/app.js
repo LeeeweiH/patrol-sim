@@ -1236,22 +1236,21 @@
     }
   }
 
+  /**
+   * 「火」「坑」是出厂图标：这一轮里可以删掉腾地方，但刷新必须回来。
+   * 所以隐藏列表只在内存里，不落盘；顺手把上一版存下的残留键清掉。
+   */
   function loadHiddenTypes() {
+    hiddenTypes = [];
     try {
-      const raw = window.localStorage.getItem(HIDDEN_TYPE_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-      hiddenTypes = Array.isArray(arr) ? arr.filter((t) => typeof t === "string" && t) : [];
+      window.localStorage.removeItem(HIDDEN_TYPE_KEY);
     } catch (error) {
-      hiddenTypes = [];
+      /* 清不了就算了 */
     }
   }
 
   function saveHiddenTypes() {
-    try {
-      window.localStorage.setItem(HIDDEN_TYPE_KEY, JSON.stringify(hiddenTypes));
-    } catch (error) {
-      /* 存不了就算了 */
-    }
+    /* 故意不落盘：内置图标刷新后一定回到调色板 */
   }
 
   function saveCustomTypes() {
