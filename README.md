@@ -37,12 +37,11 @@
 
 本项目以 Docker 镜像交付，公网部署由培训工作组统一负责，演示域名公布后在此补充。
 
-镜像托管在腾讯云容器镜像服务（TCR）公开仓库，可直接拉取运行：
+镜像托管在 GitHub Container Registry（GHCR）公开仓库，可直接拉取运行：
 
 ```bash
-docker pull ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0
-docker run -d --name patrol-sim -p 8080:8080 ccr.ccs.tencentyun.com/patrolsim/patrol-sim:v1.0.0
-```
+docker pull ghcr.io/dubya-s/patrol-sim@sha256:d374192065cb8964bcfe48ae19531d379db42afb895e7525698ae913ff09b39b
+docker run -d --name patrol-sim -p 8080:8080 ghcr.io/dubya-s/patrol-sim@sha256:d374192065cb8964bcfe48ae19531d379db42afb895e7525698ae913ff09b39b
 
 在本地跑起来即可演示：
 
